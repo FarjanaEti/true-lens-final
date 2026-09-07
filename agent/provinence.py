@@ -36,7 +36,8 @@ def _coerce_agent_dict(value, boundary_name: str) -> dict:
         try:
             decoded = json.loads(value)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"{boundary_name} must be a dict or valid JSON object: {exc}") from exc
+            raise ValueError(
+                f"{boundary_name} must be a dict or valid JSON object: {exc}") from exc
         if isinstance(decoded, dict):
             return decoded
     raise TypeError(f"{boundary_name} must be a dictionary")
@@ -273,12 +274,14 @@ def extract_image_metadata(file_path: str) -> dict:
             # Missing EXIF entirely is common (messaging apps, screenshots, many
             # AI generators, social platforms that strip metadata). We do NOT
             # treat this as proof of manipulation — LOW_CONFIDENCE only.
-            flags.append(_make_flag("NO_EXIF: Image has no EXIF data at all", "LOW_CONFIDENCE"))
+            flags.append(_make_flag(
+                "NO_EXIF: Image has no EXIF data at all", "LOW_CONFIDENCE"))
             log.info("No EXIF data found in image")
 
     except Exception as e:
         log.warning(f"PIL EXIF extraction failed: {e}")
-        flags.append(_make_flag(f"METADATA_READ_ERROR: {str(e)}", "LOW_CONFIDENCE"))
+        flags.append(_make_flag(
+            f"METADATA_READ_ERROR: {str(e)}", "LOW_CONFIDENCE"))
 
     # exifread emits expected warnings for formats such as metadata-free PNG.
     # Use it only for formats it can meaningfully inspect.
@@ -304,13 +307,15 @@ def extract_image_metadata(file_path: str) -> dict:
             and "EXIF ThumbnailImage" not in tags
         ):
             flags.append(
-                _make_flag("NO_THUMBNAIL: No embedded EXIF thumbnail found", "LOW_CONFIDENCE")
+                _make_flag(
+                    "NO_THUMBNAIL: No embedded EXIF thumbnail found", "LOW_CONFIDENCE")
             )
     except Exception as e:
         log.warning(f"exifread extraction failed: {e}")
 
     # ── FLAG: XMP metadata presence (informational, not parsed) ──
-    xmp_markers = _scan_file_for_markers(file_path, [b"<x:xmpmeta", b"adobe:ns:meta"])
+    xmp_markers = _scan_file_for_markers(
+        file_path, [b"<x:xmpmeta", b"adobe:ns:meta"])
     if xmp_markers:
         metadata["_xmp_detected"] = True
         flags.append(
@@ -322,7 +327,8 @@ def extract_image_metadata(file_path: str) -> dict:
         metadata["_xmp_detected"] = False
 
     # ── FLAG: IPTC metadata presence (informational, not parsed) ──
-    iptc_markers = _scan_file_for_markers(file_path, [b"photoshop 3.0", b"8bim"])
+    iptc_markers = _scan_file_for_markers(
+        file_path, [b"photoshop 3.0", b"8bim"])
     if iptc_markers:
         metadata["_iptc_detected"] = True
         flags.append(
@@ -384,7 +390,8 @@ def extract_video_metadata_ffprobe(file_path: str) -> dict:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
         if proc.returncode != 0:
-            log.warning(f"ffprobe exited with code {proc.returncode}: {proc.stderr[:300]}")
+            log.warning(
+                f"ffprobe exited with code {proc.returncode}: {proc.stderr[:300]}")
             flags.append(
                 _make_flag(
                     f"FFPROBE_ERROR: ffprobe failed with exit code {proc.returncode}",
@@ -396,11 +403,13 @@ def extract_video_metadata_ffprobe(file_path: str) -> dict:
         data = json.loads(proc.stdout)
         fmt = data.get("format", {})
         streams = data.get("streams", [])
-        video_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
+        video_stream = next(
+            (s for s in streams if s.get("codec_type") == "video"), {})
         format_tags = fmt.get("tags", {}) or {}
 
         # ── Container-level fields ──
-        metadata["container_format"] = fmt.get("format_long_name") or fmt.get("format_name")
+        metadata["container_format"] = fmt.get(
+            "format_long_name") or fmt.get("format_name")
         metadata["duration_seconds"] = fmt.get("duration")
         metadata["bitrate"] = fmt.get("bit_rate")
         metadata["creation_time"] = format_tags.get("creation_time")
@@ -415,11 +424,13 @@ def extract_video_metadata_ffprobe(file_path: str) -> dict:
         )
 
         # Frame rate is reported as a fraction string like "30000/1001"
-        raw_fps = video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate")
+        raw_fps = video_stream.get(
+            "avg_frame_rate") or video_stream.get("r_frame_rate")
         if raw_fps and raw_fps != "0/0":
             try:
                 num, den = raw_fps.split("/")
-                metadata["frame_rate"] = round(int(num) / int(den), 3) if int(den) != 0 else None
+                metadata["frame_rate"] = round(
+                    int(num) / int(den), 3) if int(den) != 0 else None
             except Exception:
                 metadata["frame_rate"] = raw_fps
 
@@ -441,7 +452,8 @@ def extract_video_metadata_ffprobe(file_path: str) -> dict:
                 )
                 mtime_dt = datetime.fromtimestamp(os.path.getmtime(file_path))
                 delta_days = abs(
-                    (mtime_dt.replace(tzinfo=None) - creation_dt.replace(tzinfo=None)).days
+                    (mtime_dt.replace(tzinfo=None) -
+                     creation_dt.replace(tzinfo=None)).days
                 )
                 if delta_days > 3650:  # sanity-check only for wildly implausible gaps
                     flags.append(
@@ -457,10 +469,12 @@ def extract_video_metadata_ffprobe(file_path: str) -> dict:
         log.info("ffprobe extraction succeeded")
 
     except FileNotFoundError:
-        flags.append(_make_flag("FFPROBE_NOT_FOUND: ffprobe binary missing", "LOW_CONFIDENCE"))
+        flags.append(_make_flag(
+            "FFPROBE_NOT_FOUND: ffprobe binary missing", "LOW_CONFIDENCE"))
     except subprocess.TimeoutExpired:
         flags.append(
-            _make_flag("FFPROBE_TIMEOUT: ffprobe took too long and was aborted", "LOW_CONFIDENCE")
+            _make_flag(
+                "FFPROBE_TIMEOUT: ffprobe took too long and was aborted", "LOW_CONFIDENCE")
         )
     except Exception as e:
         log.warning(f"ffprobe extraction failed: {e}")
@@ -515,7 +529,8 @@ def extract_video_metadata(file_path: str) -> dict:
 
     except Exception as e:
         log.warning(f"Mutagen metadata extraction failed: {e}")
-        flags.append(_make_flag(f"METADATA_READ_ERROR: {str(e)}", "LOW_CONFIDENCE"))
+        flags.append(_make_flag(
+            f"METADATA_READ_ERROR: {str(e)}", "LOW_CONFIDENCE"))
 
     # ── NEW: ffprobe enrichment, with automatic fallback ──
     if check_ffprobe_available():
@@ -527,7 +542,8 @@ def extract_video_metadata(file_path: str) -> dict:
         flags.extend(ffprobe_result["flags"])
         metadata["_extraction_method"] = "mutagen+ffprobe"
     else:
-        log.info("ffprobe not available on this system — using mutagen-only extraction")
+        log.info(
+            "ffprobe not available on this system — using mutagen-only extraction")
         flags.append(
             _make_flag(
                 "FFPROBE_UNAVAILABLE: ffprobe not found on PATH, falling back to mutagen-only "
@@ -838,7 +854,8 @@ def lookup_external_database(file_hash: str) -> dict:
     it identically to a real (but empty) lookup, without ever pretending
     a network call happened.
     """
-    log.info("lookup_external_database() called — this is a placeholder, no network call made")
+    log.info(
+        "lookup_external_database() called — this is a placeholder, no network call made")
     return {
         "hash_match": False,
         "verdict": "NOT_CHECKED",
@@ -955,7 +972,8 @@ def calculate_provenance_score(
         )
     elif c2pa_status == "C2PA_MARKER_FOUND":
         score += 10
-        reasoning.append("C2PA_MARKER_FOUND: Markers present but not cryptographically verified")
+        reasoning.append(
+            "C2PA_MARKER_FOUND: Markers present but not cryptographically verified")
     elif c2pa_status == "C2PA_VERIFICATION_FAILED":
         score -= 10
         reasoning.append(
@@ -971,7 +989,8 @@ def calculate_provenance_score(
     if hash_result.get("hash_match"):
         if hash_result["verdict"] == "VERIFIED_AUTHENTIC":
             score += 35
-            reasoning.append(f"HASH_VERIFIED: Known authentic — source: {hash_result['source']}")
+            reasoning.append(
+                f"HASH_VERIFIED: Known authentic — source: {hash_result['source']}")
         elif hash_result["verdict"] == "DEBUNKED":
             score -= 70
             reasoning.append(
@@ -1005,7 +1024,8 @@ def calculate_provenance_score(
     score -= metadata_penalty
 
     for flag in metadata_flags:
-        reasoning.append(f"METADATA_FLAG [{flag['confidence']}]: {flag['flag']}")
+        reasoning.append(
+            f"METADATA_FLAG [{flag['confidence']}]: {flag['flag']}")
 
     if metadata_penalty > 0:
         reasoning.append(
@@ -1045,7 +1065,8 @@ def calculate_provenance_confidence(
     if strong_signal:
         return "HIGH"
 
-    high_conf_flag_count = sum(1 for f in metadata_flags if f["confidence"] == "HIGH_CONFIDENCE")
+    high_conf_flag_count = sum(
+        1 for f in metadata_flags if f["confidence"] == "HIGH_CONFIDENCE")
     has_c2pa_marker = c2pa_result.get("c2pa_status") == "C2PA_MARKER_FOUND"
 
     if has_c2pa_marker or high_conf_flag_count >= 1:
@@ -1081,7 +1102,8 @@ def run_provenance_agent(ingestor_output: dict) -> dict:
     log.info("=" * 50)
 
     try:
-        ingestor_output = _coerce_agent_dict(ingestor_output, "ingestor_output")
+        ingestor_output = _coerce_agent_dict(
+            ingestor_output, "ingestor_output")
     except (TypeError, ValueError) as exc:
         return {
             "status": "error",
@@ -1132,7 +1154,8 @@ def run_provenance_agent(ingestor_output: dict) -> dict:
         all_metadata_flags.extend(meta_result["flags"])
 
         # ── STEP 2: Analyze metadata consistency ──
-        consistency_flags = analyze_metadata_consistency(meta_result, media_type)
+        consistency_flags = analyze_metadata_consistency(
+            meta_result, media_type)
         all_metadata_flags.extend(consistency_flags)
 
         # ── STEP 3: C2PA check ──
@@ -1161,7 +1184,8 @@ def run_provenance_agent(ingestor_output: dict) -> dict:
                     "HIGH_CONFIDENCE",
                 )
             )
-            log.error("Recomputed file hash does NOT match Ingestor Agent's reported hash!")
+            log.error(
+                "Recomputed file hash does NOT match Ingestor Agent's reported hash!")
 
         # ── STEP 4: Hash cross-reference ──
         # NOTE: we cross-reference using the RECOMPUTED hash, not the
@@ -1241,7 +1265,8 @@ def run_provenance_agent(ingestor_output: dict) -> dict:
             "provenance_confidence": provenance_confidence,  # NEW
             "provenance_reasoning": reasoning,
             "chain_of_custody_established": (
-                c2pa_result["c2pa_valid"] or hash_result.get("verdict") == "VERIFIED_AUTHENTIC"
+                c2pa_result["c2pa_valid"] or hash_result.get(
+                    "verdict") == "VERIFIED_AUTHENTIC"
             ),
             # ── NEW OPTIONAL FIELDS (additive only) ──
             "metadata_summary": metadata_summary,
@@ -1259,7 +1284,9 @@ def run_provenance_agent(ingestor_output: dict) -> dict:
             f"(confidence: {provenance_confidence})"
         )
         log.info(
-            "Result:\n" + json.dumps({k: v for k, v in result.items() if k != "metadata"}, indent=2)
+            "Result:\n" +
+            json.dumps({k: v for k, v in result.items()
+                       if k != "metadata"}, indent=2)
         )
         return result
 
@@ -1281,7 +1308,8 @@ def run_provenance_agent(ingestor_output: dict) -> dict:
 # 3. eti2
 # ============================================================
 
-if False:  # Legacy pasted-JSON fixture retained only as reference; never executed.
+# Legacy pasted-JSON fixture retained only as reference; never executed.
+if False:
 
     # ── PASTE AGENT 1 OUTPUT HERE ──
     agent1_output = r"""
@@ -1312,7 +1340,7 @@ if False:  # Legacy pasted-JSON fixture retained only as reference; never execut
 
 if __name__ == "__main__":
     import sys
-    from ingestor import run_ingestor_agent
+    from agent.ingestor import run_ingestor_agent
 
     local_image = sys.argv[1] if len(sys.argv) > 1 else "imageprocessor.jpeg"
     result = run_provenance_agent(run_ingestor_agent(local_image))

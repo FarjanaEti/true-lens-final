@@ -1,0 +1,502 @@
+python image_pipeline.py adobe-20220124-C.jpg
+WARNING: whisper not installed. Audio transcription unavailable.
+WARNING: spaCy not installed — falling back to regex entity extraction.
+WARNING: librosa not installed. Audio analysis will be skipped.
+Run: pip install librosa
+[23:08:10] [CROSSREF] ==================================================
+[23:08:10] [CROSSREF] INGESTOR AGENT STARTING
+[23:08:10] [CROSSREF] ==================================================
+[23:08:10] [CROSSREF] Classifying input: D:\true-lense\Trre-lens-code\adobe-20220124-C.jpg
+[23:08:10] [CROSSREF] Input classified as: local_file
+[23:08:10] [CROSSREF] Running security checks...
+[23:08:10] [CROSSREF] Local file passed security checks (0.1MB)
+[23:08:10] [CROSSREF] Local file — skipping download step
+[23:08:10] [CROSSREF] Detecting media type of: D:\true-lense\Trre-lens-code\adobe-20220124-C.jpg
+[23:08:11] [CROSSREF] Media type detected: image
+[23:08:11] [CROSSREF] Generating SHA-256 fingerprint...
+[23:08:11] [CROSSREF] Fingerprint: 75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864
+[23:08:11] [CROSSREF] Canonicalizing image to PNG...
+[23:08:11] [CROSSREF] Image saved to: D:\true-lense\Trre-lens-code\canonical_image_75a8da33f6eaf1e1.png
+[23:08:11] [CROSSREF] Generating SHA-256 fingerprint...
+[23:08:11] [CROSSREF] Fingerprint: 792541b617e31138843ec9359d5a9be94a5da7126f6bf1927902c56cba4f418b
+[23:08:11] [CROSSREF] INGESTOR AGENT COMPLETE ✓
+[23:08:11] [CROSSREF] Result: {
+  "status": "success",
+  "processed_at": "2026-09-07T23:08:11.305826",
+  "input_type": "local_file",
+  "media_type": "image",
+  "canonical_format": "png",
+  "file_hash": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+  "normalized_file_path": "D:\\true-lense\\Trre-lens-code\\canonical_image_75a8da33f6eaf1e1.png",
+  "source_file_path": "D:\\true-lense\\Trre-lens-code\\adobe-20220124-C.jpg",
+  "source_file_hash": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+  "normalized_file_hash": "792541b617e31138843ec9359d5a9be94a5da7126f6bf1927902c56cba4f418b",
+  "image_info": {
+    "detected_format": "JPEG",
+    "width": 2048,
+    "height": 1365,
+    "frame_count": 1
+  },
+  "ready_for_next_agent": true
+}
+[23:08:11] [CROSSREF] ==================================================
+[23:08:11] [CROSSREF] PROVENANCE AGENT STARTING
+[23:08:11] [CROSSREF] ==================================================
+[23:08:11] [CROSSREF] Extracting image EXIF metadata...
+[23:08:11] [CROSSREF] No EXIF data found in image
+[23:08:11] [CROSSREF] Analyzing metadata consistency...
+[23:08:11] [CROSSREF] No GPS data in image (common for shared images)
+[23:08:11] [CROSSREF] Checking for C2PA digital signature...
+[23:08:11] [CROSSREF] C2PA markers detected: ['c2pa', 'jumbf']
+[23:08:13] [CROSSREF] Recomputing sha256 hash from disk...
+[23:08:13] [CROSSREF] Recomputed hash: 75a8da33f6eaf1e1...
+[23:08:13] [CROSSREF] Checking internal database for hash: 75a8da33f6eaf1e1...
+[23:08:13] [CROSSREF] No internal database match
+[23:08:13] [CROSSREF] lookup_external_database() called — this is a placeholder, no network call made
+[23:08:13] [CROSSREF] PROVENANCE AGENT COMPLETE ✓ — Score: 88/100 (confidence: HIGH)
+[23:08:13] [CROSSREF] Result:
+{
+  "status": "success",
+  "processed_at": "2026-09-07T23:08:13.214087",
+  "agent": "provenance",
+  "file_path": "D:\\true-lense\\Trre-lens-code\\canonical_image_75a8da33f6eaf1e1.png",
+  "source_file_path": "D:\\true-lense\\Trre-lens-code\\adobe-20220124-C.jpg",
+  "media_type": "image",
+  "file_hash": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+  "c2pa": {
+    "c2pa_present": true,
+    "c2pa_valid": true,
+    "c2pa_status": "C2PA_VERIFIED",
+    "presence_status": "PRESENT",
+    "verification_status": "VALID",
+    "c2pa_issuer": "C2PA Test Signing Cert",
+    "c2pa_timestamp": "2023-01-24T14:48:56+00:00",
+    "c2pa_claims": [
+      "stds.schema-org.CreativeWork",
+      "c2pa.actions.v2"
+    ],
+    "note": "C2PA manifest found. Validation state: Valid"
+  },
+  "hash_lookup": {
+    "hash_match": false,
+    "verdict": "NOT_CHECKED",
+    "source": null,
+    "detail": "External hash database lookup is not implemented in this build",
+    "source_layer": "external"
+  },
+  "provenance_score": 88,
+  "provenance_confidence": "HIGH",
+  "provenance_reasoning": [
+    "C2PA_VERIFIED: Cryptographic signature verified \u2014 strong authenticity signal",
+    "HASH_UNKNOWN: No prior record in internal database (external lookup not implemented)",
+    "HASH_INTEGRITY_OK: Recomputed hash matches Ingestor Agent's reported hash",
+    "METADATA_FLAG [LOW_CONFIDENCE]: NO_EXIF: Image has no EXIF data at all",
+    "METADATA_FLAG [LOW_CONFIDENCE]: NO_THUMBNAIL: No embedded EXIF thumbnail found",
+    "METADATA_FLAG [LOW_CONFIDENCE]: XMP_METADATA_PRESENT: File contains embedded XMP metadata block",
+    "METADATA_FLAG [LOW_CONFIDENCE]: IPTC_METADATA_PRESENT: File contains an embedded IPTC/Photoshop resource block",
+    "METADATA_PENALTY_APPLIED: -2 (capped at -25)"
+  ],
+  "chain_of_custody_established": true,
+  "metadata_summary": {
+    "media_type": "image",
+    "software_or_encoder": null,
+    "camera_make": null,
+    "camera_model": null,
+    "dimensions": {
+      "width": 2048,
+      "height": 1365
+    },
+    "source_format": "JPEG",
+    "extraction_method": "exif/exifread",
+    "total_flags_raised": 4
+  },
+  "confidence_breakdown": {
+    "HIGH_CONFIDENCE": [],
+    "MEDIUM_CONFIDENCE": [],
+    "LOW_CONFIDENCE": [
+      "NO_EXIF: Image has no EXIF data at all",
+      "NO_THUMBNAIL: No embedded EXIF thumbnail found",
+      "XMP_METADATA_PRESENT: File contains embedded XMP metadata block",
+      "IPTC_METADATA_PRESENT: File contains an embedded IPTC/Photoshop resource block"
+    ]
+  },
+  "integrity_check": {
+    "recomputed_hash": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+    "ingestor_reported_hash": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+    "hash_mismatch": false
+  },
+  "hash_recomputed": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+  "hash_matches_ingestor": true,
+  "analysis_notes": [
+    "External hash database lookup is a placeholder in this build \u2014 only the internal demo lookup table was actually queried."
+  ],
+  "ready_for_next_agent": true
+}
+[23:08:13] [CROSSREF] ==================================================
+[23:08:13] [CROSSREF] FORENSICS AGENT STARTING
+[23:08:13] [CROSSREF] ==================================================
+[23:08:13] [CROSSREF] Running IMAGE forensics pipeline...
+[23:08:13] [CROSSREF] Running Error Level Analysis (ELA)...
+[23:08:13] [CROSSREF] ELA complete — max: 50, mean: 1.02, suspicious: 0.0%
+[23:08:13] [CROSSREF] Running noise and frequency analysis...
+[23:08:14] [CROSSREF] Noise analysis — std: 0.14, freq_ratio: 3.63
+[23:08:14] [CROSSREF] Running face artifact detection...
+[23:08:16] [CROSSREF] No faces detected in image (chain exhausted, method=none)
+[23:08:16] [CROSSREF] Running AI-generation heuristic analysis...
+[23:08:17] [CROSSREF] AI-generation heuristics complete — 0 flags found
+[23:08:17] [CROSSREF] Running hand/finger artifact heuristic...
+[23:08:17] [CROSSREF] No hand-shaped region found
+[23:08:17] [CROSSREF] FORENSICS AGENT COMPLETE ✓ — Verdict: AUTHENTIC, Score: 75/100, Confidence: 66, Next step: SEND_TO_CROSS_REFERENCE
+[23:08:17] [CROSSREF] ============================================================
+[23:08:17] [CROSSREF] CROSS-REFERENCE AGENT STARTING
+[23:08:17] [CROSSREF] ============================================================
+[23:08:17] [CROSSREF] Running OCR text extraction...
+[23:08:21] [CROSSREF] Running visual similarity (perceptual hash) check...
+[23:08:21] [CROSSREF] Extracting structured fact-checkable claims...
+[23:08:21] [CROSSREF] Running cheapfake / miscontextualization detection...
+[23:08:21] [CROSSREF] Cross-Reference complete — claims_checked=0, visual_similarity=NOT_CHECKED
+{
+  "status": "completed",
+  "processed_at": "2026-09-07T17:08:21.744669+00:00",
+  "media_type": "image",
+  "agents": {
+    "ingestor": {
+      "status": "success",
+      "processed_at": "2026-09-07T23:08:11.305826",
+      "input_type": "local_file",
+      "media_type": "image",
+      "canonical_format": "png",
+      "file_hash": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+      "normalized_file_path": "D:\\true-lense\\Trre-lens-code\\canonical_image_75a8da33f6eaf1e1.png",
+      "source_file_path": "D:\\true-lense\\Trre-lens-code\\adobe-20220124-C.jpg",
+      "source_file_hash": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+      "normalized_file_hash": "792541b617e31138843ec9359d5a9be94a5da7126f6bf1927902c56cba4f418b",
+      "image_info": {
+        "detected_format": "JPEG",
+        "width": 2048,
+        "height": 1365,
+        "frame_count": 1
+      },
+      "ready_for_next_agent": true
+    },
+    "provenance": {
+      "status": "success",
+      "processed_at": "2026-09-07T23:08:13.214087",
+      "agent": "provenance",
+      "file_path": "D:\\true-lense\\Trre-lens-code\\canonical_image_75a8da33f6eaf1e1.png",
+      "source_file_path": "D:\\true-lense\\Trre-lens-code\\adobe-20220124-C.jpg",
+      "media_type": "image",
+      "file_hash": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+      "metadata": {
+        "raw": {
+          "_source_format": "JPEG",
+          "_dimensions": {
+            "width": 2048,
+            "height": 1365
+          },
+          "_xmp_detected": true,
+          "_iptc_detected": true
+        },
+        "flags": [
+          "NO_EXIF: Image has no EXIF data at all",
+          "NO_THUMBNAIL: No embedded EXIF thumbnail found",
+          "XMP_METADATA_PRESENT: File contains embedded XMP metadata block",
+          "IPTC_METADATA_PRESENT: File contains an embedded IPTC/Photoshop resource block"
+        ],
+        "exif_status": "MISSING",
+        "xmp_status": "PRESENT",
+        "iptc_status": "PRESENT",
+        "thumbnail_status": "MISSING"
+      },
+      "c2pa": {
+        "c2pa_present": true,
+        "c2pa_valid": true,
+        "c2pa_status": "C2PA_VERIFIED",
+        "presence_status": "PRESENT",
+        "verification_status": "VALID",
+        "c2pa_issuer": "C2PA Test Signing Cert",
+        "c2pa_timestamp": "2023-01-24T14:48:56+00:00",
+        "c2pa_claims": [
+          "stds.schema-org.CreativeWork",
+          "c2pa.actions.v2"
+        ],
+        "note": "C2PA manifest found. Validation state: Valid"
+      },
+      "hash_lookup": {
+        "hash_match": false,
+        "verdict": "NOT_CHECKED",
+        "source": null,
+        "detail": "External hash database lookup is not implemented in this build",
+        "source_layer": "external"
+      },
+      "provenance_score": 88,
+      "provenance_confidence": "HIGH",
+      "provenance_reasoning": [
+        "C2PA_VERIFIED: Cryptographic signature verified \u2014 strong authenticity signal",
+        "HASH_UNKNOWN: No prior record in internal database (external lookup not implemented)",
+        "HASH_INTEGRITY_OK: Recomputed hash matches Ingestor Agent's reported hash",
+        "METADATA_FLAG [LOW_CONFIDENCE]: NO_EXIF: Image has no EXIF data at all",
+        "METADATA_FLAG [LOW_CONFIDENCE]: NO_THUMBNAIL: No embedded EXIF thumbnail found",
+        "METADATA_FLAG [LOW_CONFIDENCE]: XMP_METADATA_PRESENT: File contains embedded XMP metadata block",
+        "METADATA_FLAG [LOW_CONFIDENCE]: IPTC_METADATA_PRESENT: File contains an embedded IPTC/Photoshop resource block",
+        "METADATA_PENALTY_APPLIED: -2 (capped at -25)"
+      ],
+      "chain_of_custody_established": true,
+      "metadata_summary": {
+        "media_type": "image",
+        "software_or_encoder": null,
+        "camera_make": null,
+        "camera_model": null,
+        "dimensions": {
+          "width": 2048,
+          "height": 1365
+        },
+        "source_format": "JPEG",
+        "extraction_method": "exif/exifread",
+        "total_flags_raised": 4
+      },
+      "confidence_breakdown": {
+        "HIGH_CONFIDENCE": [],
+        "MEDIUM_CONFIDENCE": [],
+        "LOW_CONFIDENCE": [
+          "NO_EXIF: Image has no EXIF data at all",
+          "NO_THUMBNAIL: No embedded EXIF thumbnail found",
+          "XMP_METADATA_PRESENT: File contains embedded XMP metadata block",
+          "IPTC_METADATA_PRESENT: File contains an embedded IPTC/Photoshop resource block"
+        ]
+      },
+      "integrity_check": {
+        "recomputed_hash": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+        "ingestor_reported_hash": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+        "hash_mismatch": false
+      },
+      "hash_recomputed": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864",
+      "hash_matches_ingestor": true,
+      "analysis_notes": [
+        "External hash database lookup is a placeholder in this build \u2014 only the internal demo lookup table was actually queried."
+      ],
+      "ready_for_next_agent": true
+    },
+    "forensics": {
+      "status": "success",
+      "processed_at": "2026-09-07T23:08:17.296902",
+      "agent": "forensics",
+      "file_path": "D:\\true-lense\\Trre-lens-code\\canonical_image_75a8da33f6eaf1e1.png",
+      "media_type": "image",
+      "media_authenticity": "AUTHENTIC",
+      "confidence": 66,
+      "forensics_score": 75,
+      "evidence": [
+        "No significant compression-history anomalies detected",
+        "No anomalies detected (content_classification)",
+        "LOW_NOISE_STD: Noise std=0.14 \u2014 unnaturally smooth, weak indicator consistent with (but not proof of) AI generation",
+        "No face could be located in this image by any detector in the fallback chain (YuNet DNN, Haar primary/secondary, skin-tone heuristic) \u2014 face-artifact analysis could not be performed. This does not confirm the image is clean; it means this module has no opinion.",
+        "No AI-generation heuristic anomalies detected across symmetry, eye, ear, edge, texture, or lighting checks",
+        "No hand region found, or estimated finger count was plausible"
+      ],
+      "recommended_next_step": "SEND_TO_CROSS_REFERENCE",
+      "explainability": [
+        {
+          "feature_checked": "Error Level Analysis (compression consistency)",
+          "result": "No significant compression-history anomalies detected",
+          "confidence": 85,
+          "contribution_to_score": 0
+        },
+        {
+          "feature_checked": "content_classification",
+          "result": "No anomalies detected (content_classification)",
+          "confidence": 85,
+          "contribution_to_score": 0
+        },
+        {
+          "feature_checked": "Noise & frequency-domain analysis",
+          "result": "LOW_NOISE_STD: Noise std=0.14 \u2014 unnaturally smooth, weak indicator consistent with (but not proof of) AI generation",
+          "confidence": 70,
+          "contribution_to_score": -10
+        },
+        {
+          "feature_checked": "Face artifact / deepfake detector",
+          "result": "No face could be located in this image by any detector in the fallback chain (YuNet DNN, Haar primary/secondary, skin-tone heuristic) \u2014 face-artifact analysis could not be performed. This does not confirm the image is clean; it means this module has no opinion.",
+          "confidence": 15,
+          "contribution_to_score": 0
+        },
+        {
+          "feature_checked": "AI-generation heuristics (symmetry, eyes, ears, edges, texture, lighting)",
+          "result": "No AI-generation heuristic anomalies detected across symmetry, eye, ear, edge, texture, or lighting checks",
+          "confidence": 85,
+          "contribution_to_score": 0
+        },
+        {
+          "feature_checked": "Hand/finger artifact heuristic",
+          "result": "No hand region found, or estimated finger count was plausible",
+          "confidence": 85,
+          "contribution_to_score": 0
+        }
+      ],
+      "analysis_limitations": [
+        "Hand/finger artifact heuristic: NO_HAND_REGION_DETECTED: No plausible hand-shaped skin-tone region was found \u2014 this is an informational result, not evidence either way",
+        "This agent uses heuristic and signal-based forensic techniques (compression analysis, pixel statistics, YuNet DNN + Haar-cascade face detection, classical CV symmetry/texture/lighting checks, spectral audio features) rather than trained deep-learning manipulation classifiers. Results should be treated as screening-level evidence, combined with cross-referencing, and not relied upon in isolation for high-stakes decisions."
+      ],
+      "score_reasoning": [
+        "MODERATE_FLAG: LOW_NOISE_STD: Noise std=0.14 \u2014 unnaturally smooth, weak indicator consistent with (but not proof of) AI generation (-10 pts)"
+      ],
+      "raw_findings": {
+        "ela": {
+          "ela_max": 50,
+          "ela_mean": 1.018,
+          "suspicious_region_percent": 0.0,
+          "flags": [],
+          "module_status": "ok",
+          "ela_module_applicable": true,
+          "source_format": "JPEG"
+        },
+        "content_classification": {
+          "content_type": "NATURAL_SCENE_OR_UNKNOWN",
+          "document_like": false,
+          "text_row_candidates": 0,
+          "rectangular_region_candidates": 0,
+          "module_status": "ok"
+        },
+        "noise_frequency": {
+          "noise_std": 0.135,
+          "noise_mean": 0.061,
+          "fft_freq_ratio": 3.63,
+          "flags": [
+            "LOW_NOISE_STD: Noise std=0.14 \u2014 unnaturally smooth, weak indicator consistent with (but not proof of) AI generation"
+          ],
+          "module_status": "ok"
+        },
+        "face_artifacts": {
+          "faces_found": 0,
+          "face_boxes": [],
+          "detection_method": "none",
+          "detection_confidence": "none",
+          "clean_evidence_text": "No face could be located in this image by any detector in the fallback chain (YuNet DNN, Haar primary/secondary, skin-tone heuristic) \u2014 face-artifact analysis could not be performed. This does not confirm the image is clean; it means this module has no opinion.",
+          "clean_evidence_confidence": 15,
+          "flags": [],
+          "module_status": "ok"
+        },
+        "ai_heuristics": {
+          "metrics": {
+            "edge_density_std": 0.0,
+            "texture_coefficient_of_variation": 0.754,
+            "lighting_direction_circular_variance": 0.348
+          },
+          "flags": [],
+          "not_applicable_checks": [],
+          "content_context": {
+            "content_type": "NATURAL_SCENE_OR_UNKNOWN",
+            "document_like": false,
+            "text_row_candidates": 0,
+            "rectangular_region_candidates": 0,
+            "module_status": "ok"
+          },
+          "module_status": "ok"
+        },
+        "hand_artifacts": {
+          "hand_region_found": false,
+          "regions_analyzed": 0,
+          "flags": [
+            "NO_HAND_REGION_DETECTED: No plausible hand-shaped skin-tone region was found \u2014 this is an informational result, not evidence either way"
+          ],
+          "module_status": "ok"
+        }
+      },
+      "all_flags": [
+        "LOW_NOISE_STD: Noise std=0.14 \u2014 unnaturally smooth, weak indicator consistent with (but not proof of) AI generation",
+        "NO_HAND_REGION_DETECTED: No plausible hand-shaped skin-tone region was found \u2014 this is an informational result, not evidence either way"
+      ],
+      "total_flags_found": 2,
+      "ready_for_next_agent": true
+    },
+    "cross_reference": {
+      "status": "completed",
+      "agent": "cross_reference",
+      "file_path": "D:\\true-lense\\Trre-lens-code\\canonical_image_75a8da33f6eaf1e1.png",
+      "media_type": "image",
+      "crossref_score": 50,
+      "crossref_note": "CROSSREF_NEUTRAL",
+      "crossref_score_reasoning": [
+        "CROSSREF_NEUTRAL: No fact-checkable claims were checked \u2014 scored as neutral (50).",
+        "VISUAL_SIMILARITY_NEUTRAL: Visual similarity was not checked against a populated database; no score impact."
+      ],
+      "claims_checked": 0,
+      "claim_results": [],
+      "verified_count": 0,
+      "debunked_count": 0,
+      "unverified_count": 0,
+      "sources_used": [],
+      "external_searches_performed": 0,
+      "reasoning": [
+        "OCR_NO_TEXT_DETECTED: OCR completed but no readable text was extracted.",
+        "VISUAL_SIMILARITY_NO_DATABASE: No known-image database is populated; hashing was skipped and this result has no evidentiary weight.",
+        "NO_FACTUAL_CLAIM_EXTRACTED: No fact-checkable factual claim was extracted from available OCR/transcript text. Opinion, advice, and rhetorical statements are excluded from external verification. See visual_similarity for the independent perceptual-hash check."
+      ],
+      "flags": [
+        "OCR_NO_TEXT_DETECTED: OCR completed but no readable text was extracted.",
+        "VISUAL_SIMILARITY_NO_DATABASE: No known-image database is populated; hashing was skipped and this result has no evidentiary weight.",
+        "NO_FACTUAL_CLAIM_EXTRACTED: No fact-checkable factual claim was extracted from available OCR/transcript text. Opinion, advice, and rhetorical statements are excluded from external verification. See visual_similarity for the independent perceptual-hash check."
+      ],
+      "cheapfake_analysis": {
+        "cheapfake_phrases_found": [],
+        "extraordinary_claim_detected": false,
+        "old_dates_in_text": [],
+        "stale_media_language_found": [],
+        "caption_lacks_context": false,
+        "ocr_transcript_mismatches": [],
+        "flags": []
+      },
+      "visual_similarity": {
+        "checked": false,
+        "verdict": "NOT_CHECKED",
+        "flags": [
+          "VISUAL_SIMILARITY_NO_DATABASE: No known-image database is populated; hashing was skipped and this result has no evidentiary weight."
+        ],
+        "module_status": "not_applicable"
+      },
+      "ocr_text": "",
+      "transcript": "",
+      "language_detected": null,
+      "routing_reason": "FORENSICS_REQUIRES_CROSSREF: AUTHENTIC (66.0%)",
+      "modules": {
+        "ocr": "ok",
+        "transcription": "not_applicable",
+        "claim_extraction": "no_fact_checkable_claims",
+        "external_verification": "not_applicable",
+        "cheapfake_analysis": "ok",
+        "visual_similarity": "not_applicable"
+      },
+      "analysis_summary": {
+        "claims_found": 0,
+        "ocr_claim_candidates_before_filtering": 0,
+        "reliable_claims_after_filtering": 0,
+        "claims_filtered_as_noise_or_duplicates": 0,
+        "fact_checkable_claims_checked": 0,
+        "external_searches_performed": 0,
+        "primary_claim_found": false,
+        "external_evidence_found": false,
+        "cheapfake_flags_found": 0,
+        "visual_similarity_verdict": "NOT_CHECKED"
+      },
+      "ready_for_next_agent": true,
+      "processed_at": "2026-09-07T17:08:21.744222+00:00"
+    }
+  },
+  "timing_ms": {
+    "ingestor": 435.66,
+    "provenance": 1907.35,
+    "forensics": 4082.37,
+    "cross_reference": 4447.1,
+    "total": 10872.62
+  },
+  "final_decision": {
+    "category": "Likely Authentic",
+    "confidence": "High",
+    "reasons": [
+      "A C2PA manifest was cryptographically validated."
+    ],
+    "is_calibrated_probability": false
+  },
+  "ready_for_display": true
+}
+(.venv) PS D:\true-lense\Trre-lens-code> 

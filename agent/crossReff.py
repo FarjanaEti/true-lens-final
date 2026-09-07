@@ -311,7 +311,8 @@ def _coerce_agent_dict(value, boundary_name: str) -> dict:
         try:
             decoded = json.loads(value)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"{boundary_name} must be a dict or valid JSON object: {exc}") from exc
+            raise ValueError(
+                f"{boundary_name} must be a dict or valid JSON object: {exc}") from exc
         if isinstance(decoded, dict):
             return decoded
     raise TypeError(f"{boundary_name} must be a dictionary")
@@ -408,7 +409,8 @@ def _ddg_circuit_is_open() -> bool:
         _ddg_circuit_opened_at
         and (time.time() - _ddg_circuit_opened_at) > _DDG_CIRCUIT_COOLDOWN_SECONDS
     ):
-        log.info("DDG circuit breaker cooldown elapsed — will retry DuckDuckGo search.")
+        log.info(
+            "DDG circuit breaker cooldown elapsed — will retry DuckDuckGo search.")
         _ddg_circuit_open = False
         _ddg_consecutive_failures = 0
         _ddg_circuit_opened_at = None
@@ -603,7 +605,8 @@ def _extract_hash_candidate_frames(video_path: str, max_candidates: int = 8) -> 
             return frames
 
         positions = sorted(
-            set(int(total_frames * i / max_candidates) for i in range(max_candidates))
+            set(int(total_frames * i / max_candidates)
+                for i in range(max_candidates))
         )
 
         for position in positions:
@@ -683,11 +686,13 @@ def check_visual_similarity(
                 }
 
             candidate_hashes.append(
-                {"hashes": hashes, "frame_index": None, "selection_reason": "SOURCE_IMAGE"}
+                {"hashes": hashes, "frame_index": None,
+                    "selection_reason": "SOURCE_IMAGE"}
             )
 
         elif media_type == "video":
-            frames = _extract_hash_candidate_frames(file_path, max_candidates=8)
+            frames = _extract_hash_candidate_frames(
+                file_path, max_candidates=8)
 
             if not frames:
                 return {
@@ -859,7 +864,8 @@ def extract_key_frames(video_path: str, num_frames: int = 8) -> list:
 
         for i in range(num_frames):
 
-            cap.set(cv2.CAP_PROP_POS_FRAMES, min(i * interval, total_frames - 1))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, min(
+                i * interval, total_frames - 1))
 
             ret, frame = cap.read()
 
@@ -895,7 +901,8 @@ def _prepare_image_ocr_variants(file_path: str) -> list:
         if longest < 2200:
             scale = min(3.0, 2200 / max(longest, 1))
             base = base.resize(
-                (max(1, int(base.width * scale)), max(1, int(base.height * scale))),
+                (max(1, int(base.width * scale)),
+                 max(1, int(base.height * scale))),
                 Image.Resampling.LANCZOS,
             )
 
@@ -905,7 +912,8 @@ def _prepare_image_ocr_variants(file_path: str) -> list:
     cv_gray = cv2.cvtColor(cv2.imread(file_path), cv2.COLOR_BGR2GRAY)
     if max(cv_gray.shape) < 2200:
         scale = min(3.0, 2200 / max(cv_gray.shape))
-        cv_gray = cv2.resize(cv_gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        cv_gray = cv2.resize(cv_gray, None, fx=scale,
+                             fy=scale, interpolation=cv2.INTER_CUBIC)
     adaptive = cv2.adaptiveThreshold(
         cv_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 15
     )
@@ -921,7 +929,8 @@ def _merge_ocr_passes(texts: list) -> str:
     texts = [text.strip() for text in texts if text and text.strip()]
     if not texts:
         return ""
-    texts.sort(key=lambda value: sum(ch.isalnum() for ch in value), reverse=True)
+    texts.sort(key=lambda value: sum(ch.isalnum()
+               for ch in value), reverse=True)
     output_lines = []
     normalized_seen = []
     for text in texts:
@@ -961,8 +970,10 @@ def extract_text_via_ocr(file_path: str, media_type: str) -> dict:
             ocr_attempts = []
             for name, image, config in _prepare_image_ocr_variants(file_path):
                 try:
-                    text = pytesseract.image_to_string(image, config=config).strip()
-                    ocr_attempts.append({"name": name, "characters": len(text)})
+                    text = pytesseract.image_to_string(
+                        image, config=config).strip()
+                    ocr_attempts.append(
+                        {"name": name, "characters": len(text)})
                     if text:
                         extracted_texts.append(text)
                 except Exception as pass_error:
@@ -976,7 +987,8 @@ def extract_text_via_ocr(file_path: str, media_type: str) -> dict:
 
                 try:
 
-                    text = pytesseract.image_to_string(frame, config=r"--oem 3 --psm 3").strip()
+                    text = pytesseract.image_to_string(
+                        frame, config=r"--oem 3 --psm 3").strip()
 
                     if text:
                         extracted_texts.append(text)
@@ -1010,7 +1022,8 @@ def extract_text_via_ocr(file_path: str, media_type: str) -> dict:
         ]:
 
             if re.search(pattern, combined_text, re.IGNORECASE):
-                flags.append("SENSATIONAL_OVERLAY_TEXT: " f"Found '{pattern}' in media")
+                flags.append(
+                    "SENSATIONAL_OVERLAY_TEXT: " f"Found '{pattern}' in media")
 
         if not combined_text:
             flags.append(
@@ -1347,7 +1360,8 @@ _BIBLE_BOOKS = (
 )
 
 _BIBLE_VERSE_PATTERN = re.compile(
-    r"\b([1-3]\s?)?" + _BIBLE_BOOKS + r".?\s\d{1,3}(:\d{1,3}(-\d{1,3})?)?\b", re.IGNORECASE
+    r"\b([1-3]\s?)?" + _BIBLE_BOOKS +
+    r".?\s\d{1,3}(:\d{1,3}(-\d{1,3})?)?\b", re.IGNORECASE
 )
 
 _RELIGIOUS_APPEAL_WORDS = [
@@ -1396,7 +1410,8 @@ def _regex_entities(text: str) -> dict:
     # Events
     for kw in _EVENT_KEYWORDS:
 
-        pattern = r"\b\w+\s+" + re.escape(kw) + r"\b|" r"\b" + re.escape(kw) + r"\b"
+        pattern = r"\b\w+\s+" + \
+            re.escape(kw) + r"\b|" r"\b" + re.escape(kw) + r"\b"
 
         for m in re.finditer(pattern, text, re.IGNORECASE):
             entities["events"].append(m.group(0).strip())
@@ -1418,7 +1433,7 @@ def _regex_entities(text: str) -> dict:
         except ValueError:
             continue
 
-        window = text[max(0, m.start() - 25) : m.end() + 25].lower()
+        window = text[max(0, m.start() - 25): m.end() + 25].lower()
 
         if any(w in window for w in _DEATH_CONTEXT):
             context = "death_count"
@@ -1456,7 +1471,8 @@ def _regex_entities(text: str) -> dict:
     for suffix in _ORG_SUFFIXES:
 
         for m in re.finditer(
-            r"([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)\s+" + re.escape(suffix), text
+            r"([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)\s+" +
+            re.escape(suffix), text
         ):
 
             if not _overlaps_verse(m.start(), m.end()):
@@ -1525,7 +1541,8 @@ def extract_entities(text: str) -> dict:
 
         doc = _NLP(text)
 
-        verse_spans = [(m.start(), m.end()) for m in _BIBLE_VERSE_PATTERN.finditer(text)]
+        verse_spans = [(m.start(), m.end())
+                       for m in _BIBLE_VERSE_PATTERN.finditer(text)]
 
         def _overlaps_verse(start, end):
 
@@ -1566,7 +1583,8 @@ def extract_entities(text: str) -> dict:
 
     except Exception as e:
 
-        log.warning(f"spaCy entity extraction failed; " f"using regex fallback: {e}")
+        log.warning(
+            f"spaCy entity extraction failed; " f"using regex fallback: {e}")
 
         return heuristic
 
@@ -1600,7 +1618,8 @@ _SOCIAL_UI_PATTERNS = [
 
 def _normalize_claim_text(text: str) -> str:
     """Remove OCR punctuation artifacts without rewriting meaningful words."""
-    value = text.replace("\u2018", "'").replace("\u2019", "'").replace("\ufffd", " ")
+    value = text.replace("\u2018", "'").replace(
+        "\u2019", "'").replace("\ufffd", " ")
     value = re.sub(r"[|\\]{2,}", " ", value)
     value = re.sub(r"\s+", " ", value).strip(" \t\r\n,;:|_-.")
     return value
@@ -1742,9 +1761,11 @@ def _is_fact_checkable_sentence(sentence: str) -> tuple[bool, str]:
 
     has_event_category = bool(_classify_sentence(s))
 
-    has_factual_action = any(re.search(pattern, low) for pattern in factual_action_patterns)
+    has_factual_action = any(re.search(pattern, low)
+                             for pattern in factual_action_patterns)
 
-    has_named_entity = bool(re.search(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\b", s))
+    has_named_entity = bool(
+        re.search(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\b", s))
 
     # A name, place, date, or number alone is context/metadata, not an
     # assertion. Require an event/action plus some independently searchable
@@ -1830,7 +1851,8 @@ def detect_primary_claim(ocr_text: str, transcript: str, combined_entities: dict
 
         cats = _classify_sentence(sentence)
 
-        has_proper_noun = bool(re.search(r"\b[A-Z][a-z]+" r"(?:\s+[A-Z][a-z]+)*\b", sentence))
+        has_proper_noun = bool(
+            re.search(r"\b[A-Z][a-z]+" r"(?:\s+[A-Z][a-z]+)*\b", sentence))
 
         has_action = bool(
             re.search(
@@ -1878,7 +1900,8 @@ def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False):
     all_text = (f"{ocr_text}\n{transcript}").strip()
 
     if not all_text:
-        empty_stats = {"ocr_claim_candidates": 0, "reliable_claims": 0, "filtered_claims": 0}
+        empty_stats = {"ocr_claim_candidates": 0,
+                       "reliable_claims": 0, "filtered_claims": 0}
         return ([], empty_stats) if return_stats else []
 
     combined_entities = extract_entities(all_text)
@@ -1914,7 +1937,8 @@ def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False):
 
         cats = _classify_sentence(sentence)
 
-        has_proper_noun = bool(re.search(r"\b[A-Z][a-z]+" r"(?:\s+[A-Z][a-z]+)*\b", sentence))
+        has_proper_noun = bool(
+            re.search(r"\b[A-Z][a-z]+" r"(?:\s+[A-Z][a-z]+)*\b", sentence))
 
         has_action = bool(
             re.search(
@@ -2039,7 +2063,8 @@ def build_search_queries(
 
     person = entities["persons"][0] if entities.get("persons") else None
 
-    org = entities["organizations"][0] if entities.get("organizations") else None
+    org = entities["organizations"][0] if entities.get(
+        "organizations") else None
 
     combos = []
 
@@ -2181,7 +2206,8 @@ def _run_ddg_search(query: str, max_results: int) -> list:
 
             title = title_tag.get_text(" ", strip=True)
 
-            snippet = snippet_tag.get_text(" ", strip=True) if snippet_tag else ""
+            snippet = snippet_tag.get_text(
+                " ", strip=True) if snippet_tag else ""
 
             domain = normalize_domain(url)
 
@@ -2248,7 +2274,7 @@ def search_trusted_sources(query: str, max_results: int = MAX_RESULTS_PER_QUERY)
     requests_made = 0
 
     domain_groups = [
-        TRUSTED_DOMAINS[index : index + TRUSTED_DOMAIN_GROUP_SIZE]
+        TRUSTED_DOMAINS[index: index + TRUSTED_DOMAIN_GROUP_SIZE]
         for index in range(0, len(TRUSTED_DOMAINS), TRUSTED_DOMAIN_GROUP_SIZE)
     ]
     for domains in domain_groups:
@@ -2314,7 +2340,8 @@ def query_google_factcheck(claim_text: str, api_key: str) -> dict:
 
         response = requests.get(
             "https://factchecktools.googleapis.com/v1alpha1/claims:search",
-            params={"key": api_key, "query": claim_text, "languageCode": "en", "pageSize": 3},
+            params={"key": api_key, "query": claim_text,
+                    "languageCode": "en", "pageSize": 3},
             timeout=REQUEST_TIMEOUT,
         )
 
@@ -2454,12 +2481,14 @@ def _text_similarity(claim_text: str, evidence_text: str) -> dict:
 
     if claim_kw and evidence_kw:
 
-        keyword_overlap = len(claim_kw & evidence_kw) / len(claim_kw | evidence_kw)
+        keyword_overlap = len(claim_kw & evidence_kw) / \
+            len(claim_kw | evidence_kw)
 
     else:
         keyword_overlap = 0.0
 
-    seq_ratio = SequenceMatcher(None, claim_text.lower(), evidence_text.lower()).ratio()
+    seq_ratio = SequenceMatcher(
+        None, claim_text.lower(), evidence_text.lower()).ratio()
 
     score = round(keyword_overlap * 0.7 + seq_ratio * 0.3, 3)
 
@@ -2526,9 +2555,11 @@ def compare_entities(claim_entities: dict, evidence_entities: dict) -> dict:
 
     for key in ["locations", "dates", "persons", "organizations"]:
 
-        c_vals = {str(v).lower().strip() for v in claim_entities.get(key, []) if str(v).strip()}
+        c_vals = {str(v).lower().strip()
+                  for v in claim_entities.get(key, []) if str(v).strip()}
 
-        e_vals = {str(v).lower().strip() for v in evidence_entities.get(key, []) if str(v).strip()}
+        e_vals = {str(v).lower().strip()
+                  for v in evidence_entities.get(key, []) if str(v).strip()}
 
         if not c_vals or not e_vals:
             continue
@@ -2539,9 +2570,11 @@ def compare_entities(claim_entities: dict, evidence_entities: dict) -> dict:
             mismatches.append(key)
 
     # Numbers require more caution.
-    c_nums = {n.get("value") for n in claim_entities.get("numbers", []) if isinstance(n, dict)}
+    c_nums = {n.get("value") for n in claim_entities.get(
+        "numbers", []) if isinstance(n, dict)}
 
-    e_nums = {n.get("value") for n in evidence_entities.get("numbers", []) if isinstance(n, dict)}
+    e_nums = {n.get("value") for n in evidence_entities.get(
+        "numbers", []) if isinstance(n, dict)}
 
     if c_nums and e_nums:
 
@@ -2641,10 +2674,13 @@ def verify_claims(claims: list) -> dict:
             if cache_key in search_cache:
                 trusted = search_cache[cache_key]
             else:
-                trusted = search_trusted_sources(query, max_results=MAX_RESULTS_PER_QUERY)
+                trusted = search_trusted_sources(
+                    query, max_results=MAX_RESULTS_PER_QUERY)
                 search_cache[cache_key] = trusted
-                external_searches_performed += int(trusted.get("requests_made", 0) or 0)
-            search_statuses.append(trusted.get("status", "INSUFFICIENT_EVIDENCE"))
+                external_searches_performed += int(
+                    trusted.get("requests_made", 0) or 0)
+            search_statuses.append(trusted.get(
+                "status", "INSUFFICIENT_EVIDENCE"))
 
             for result in trusted.get("results", []):
 
@@ -2670,7 +2706,8 @@ def verify_claims(claims: list) -> dict:
         if GOOGLE_FACTCHECK_API_KEY:
 
             external_searches_performed += 1
-            factcheck = query_google_factcheck(claim["text"], GOOGLE_FACTCHECK_API_KEY)
+            factcheck = query_google_factcheck(
+                claim["text"], GOOGLE_FACTCHECK_API_KEY)
 
             for item in factcheck.get("results", []):
 
@@ -2717,11 +2754,14 @@ def verify_claims(claims: list) -> dict:
         # Aggregate evidence
         # ----------------------------------------------------
 
-        corroborated = [c for c in evidence_comparisons if c["final_verdict"] == "CORROBORATED"]
+        corroborated = [
+            c for c in evidence_comparisons if c["final_verdict"] == "CORROBORATED"]
 
-        contradicted = [c for c in evidence_comparisons if c["final_verdict"] == "CONTRADICTED"]
+        contradicted = [
+            c for c in evidence_comparisons if c["final_verdict"] == "CONTRADICTED"]
 
-        related = [c for c in evidence_comparisons if c["final_verdict"] == "RELATED"]
+        related = [
+            c for c in evidence_comparisons if c["final_verdict"] == "RELATED"]
 
         # ----------------------------------------------------
         # Stronger aggregation logic
@@ -2729,9 +2769,11 @@ def verify_claims(claims: list) -> dict:
 
         # Multiple independent corroborating sources
         # are stronger than a single matching result.
-        unique_corroborating_sources = {c["source"] for c in corroborated if c.get("source")}
+        unique_corroborating_sources = {c["source"]
+                                        for c in corroborated if c.get("source")}
 
-        unique_contradicting_sources = {c["source"] for c in contradicted if c.get("source")}
+        unique_contradicting_sources = {c["source"]
+                                        for c in contradicted if c.get("source")}
 
         if unique_corroborating_sources and unique_contradicting_sources:
 
@@ -2769,7 +2811,8 @@ def verify_claims(claims: list) -> dict:
         # Evidence confidence
         # ----------------------------------------------------
 
-        source_count = len({c.get("source") for c in evidence_comparisons if c.get("source")})
+        source_count = len({c.get("source")
+                           for c in evidence_comparisons if c.get("source")})
 
         if verdict == "VERIFIED":
 
@@ -2803,7 +2846,8 @@ def verify_claims(claims: list) -> dict:
 
             best = max(contradicted, key=lambda c: c["overlap_score"])
 
-            reasoning.append("Contradictory evidence found from " f"{best['source']}.")
+            reasoning.append(
+                "Contradictory evidence found from " f"{best['source']}.")
 
             flags.append(
                 "CLAIM_DEBUNKED: "
@@ -2815,7 +2859,8 @@ def verify_claims(claims: list) -> dict:
 
             best = max(corroborated, key=lambda c: c["overlap_score"])
 
-            reasoning.append("Corroborating evidence found from " f"{best['source']}.")
+            reasoning.append(
+                "Corroborating evidence found from " f"{best['source']}.")
 
         if len(unique_corroborating_sources) == 1:
 
@@ -2839,7 +2884,8 @@ def verify_claims(claims: list) -> dict:
 
         if verdict == "SEARCH_FAILED":
 
-            reasoning.append("External search failed; no authenticity inference was made.")
+            reasoning.append(
+                "External search failed; no authenticity inference was made.")
             flags.append(f"SEARCH_FAILED: '{claim['text'][:100]}...'")
 
         elif not evidence_comparisons:
@@ -2873,7 +2919,8 @@ def verify_claims(claims: list) -> dict:
                 "categories": claim.get("categories", []),
                 "matched_entities": claim.get("entities", {}),
                 "evidence_sources": list(
-                    dict.fromkeys(c["source"] for c in evidence_comparisons if c.get("source"))
+                    dict.fromkeys(c["source"]
+                                  for c in evidence_comparisons if c.get("source"))
                 ),
                 "evidence_comparisons": evidence_comparisons,
                 "verdict": verdict,
@@ -2951,7 +2998,8 @@ def detect_cheapfake(ocr_text: str, transcript: str) -> dict:
 
     all_text = (f"{ocr_text} {transcript}").strip().lower()
 
-    found_phrases = [phrase for phrase in _URGENCY_PHRASES if phrase in all_text]
+    found_phrases = [
+        phrase for phrase in _URGENCY_PHRASES if phrase in all_text]
 
     if found_phrases:
         flags.append(
@@ -2987,7 +3035,8 @@ def detect_cheapfake(ocr_text: str, transcript: str) -> dict:
             "than the current context."
         )
 
-    reuse_hits = [phrase for phrase in _STALE_REUSE_PHRASES if phrase in all_text]
+    reuse_hits = [
+        phrase for phrase in _STALE_REUSE_PHRASES if phrase in all_text]
 
     if reuse_hits:
         flags.append(
@@ -3084,12 +3133,14 @@ def compute_crossref_score(
         if debunked_count:
             penalty = debunked_count * 25
             score -= penalty
-            score_reasoning.append(f"DEBUNKED_PENALTY: -{penalty} " f"({debunked_count} × 25).")
+            score_reasoning.append(
+                f"DEBUNKED_PENALTY: -{penalty} " f"({debunked_count} × 25).")
 
         if verified_count:
             bonus = verified_count * 15
             score += bonus
-            score_reasoning.append(f"VERIFIED_BONUS: +{bonus} " f"({verified_count} × 15).")
+            score_reasoning.append(
+                f"VERIFIED_BONUS: +{bonus} " f"({verified_count} × 15).")
 
     score = max(0, min(100, int(score)))
 
@@ -3121,8 +3172,10 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
     log.info("=" * 60)
 
     try:
-        provenance_output = _coerce_agent_dict(provenance_output, "provenance_output")
-        forensics_output = _coerce_agent_dict(forensics_output, "forensics_output")
+        provenance_output = _coerce_agent_dict(
+            provenance_output, "provenance_output")
+        forensics_output = _coerce_agent_dict(
+            forensics_output, "forensics_output")
     except (TypeError, ValueError) as exc:
         return {
             "status": "error",
@@ -3149,7 +3202,8 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
     # Forensic routing
     # --------------------------------------------------------
 
-    skip_crossref, routing_reason = should_skip_cross_reference(forensics_output)
+    skip_crossref, routing_reason = should_skip_cross_reference(
+        forensics_output)
 
     if skip_crossref:
 
@@ -3179,7 +3233,8 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
     # File path
     # --------------------------------------------------------
 
-    file_path = forensics_output.get("file_path") or provenance_output.get("file_path")
+    file_path = forensics_output.get(
+        "file_path") or provenance_output.get("file_path")
 
     if not file_path:
 
@@ -3248,7 +3303,8 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
         # ----------------------------------------------------
 
         visual_source_path = (
-            provenance_output.get("source_file_path") if media_type == "image" else file_path
+            provenance_output.get(
+                "source_file_path") if media_type == "image" else file_path
         )
         if not visual_source_path or not os.path.exists(visual_source_path):
             visual_source_path = file_path
@@ -3262,7 +3318,8 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
         # Claims
         # ----------------------------------------------------
 
-        claims, claim_filter_stats = extract_claims(ocr_text, transcript, return_stats=True)
+        claims, claim_filter_stats = extract_claims(
+            ocr_text, transcript, return_stats=True)
 
         if not claims:
 
@@ -3413,9 +3470,9 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
 if __name__ == "__main__":
     import sys
 
-    from forensic import run_forensics_agent
-    from ingestor import run_ingestor_agent
-    from provinence import run_provenance_agent
+    from agent.forensic import run_forensics_agent
+    from agent.ingestor import run_ingestor_agent
+    from agent.provinence import run_provenance_agent
 
     local_image = sys.argv[1] if len(sys.argv) > 1 else "imageprocessor.jpeg"
     ingestor_result = run_ingestor_agent(local_image)

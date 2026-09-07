@@ -53,7 +53,8 @@ def _coerce_agent_dict(value, boundary_name: str) -> dict:
         try:
             decoded = json.loads(value)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"{boundary_name} must be a dict or valid JSON object: {exc}") from exc
+            raise ValueError(
+                f"{boundary_name} must be a dict or valid JSON object: {exc}") from exc
         if isinstance(decoded, dict):
             return decoded
     raise TypeError(f"{boundary_name} must be a dictionary")
@@ -194,12 +195,14 @@ def _get_cascade(cascade_filename: str):
     clf = None
     if hasattr(cv2, "CascadeClassifier") and hasattr(cv2, "data"):
         try:
-            cascade_path = os.path.join(cv2.data.haarcascades, cascade_filename)
+            cascade_path = os.path.join(
+                cv2.data.haarcascades, cascade_filename)
             candidate = cv2.CascadeClassifier(cascade_path)
             if candidate is not None and not candidate.empty():
                 clf = candidate
         except Exception as e:
-            log.warning(f"CascadeClassifier load failed for {cascade_filename}: {e}")
+            log.warning(
+                f"CascadeClassifier load failed for {cascade_filename}: {e}")
 
     _CASCADE_CACHE[cascade_filename] = clf
     return clf
@@ -214,18 +217,21 @@ def _fallback_face_regions(color_img) -> list:
     """
     hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR2HSV)
     hsv_mask = cv2.inRange(
-        hsv, np.array([0, 30, 60], dtype=np.uint8), np.array([25, 180, 255], dtype=np.uint8)
+        hsv, np.array([0, 30, 60], dtype=np.uint8), np.array(
+            [25, 180, 255], dtype=np.uint8)
     )
 
     ycrcb = cv2.cvtColor(color_img, cv2.COLOR_BGR2YCrCb)
     ycrcb_mask = cv2.inRange(
-        ycrcb, np.array([0, 133, 77], dtype=np.uint8), np.array([255, 173, 127], dtype=np.uint8)
+        ycrcb, np.array([0, 133, 77], dtype=np.uint8), np.array(
+            [255, 173, 127], dtype=np.uint8)
     )
 
     mask = cv2.bitwise_or(hsv_mask, ycrcb_mask)
     mask = cv2.medianBlur(mask, 7)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     gray = cv2.cvtColor(color_img, cv2.COLOR_BGR2GRAY)
     img_area = color_img.shape[0] * color_img.shape[1]
@@ -236,7 +242,7 @@ def _fallback_face_regions(color_img) -> list:
         aspect = h / (w + 1e-6)
         if area < 0.006 * img_area or not (0.8 <= aspect <= 2.0):
             continue
-        roi = gray[y : y + h, x : x + w]
+        roi = gray[y: y + h, x: x + w]
         if roi.size == 0:
             continue
         if float(cv2.Laplacian(roi, cv2.CV_64F).var()) < 15:
@@ -254,13 +260,15 @@ def _detect_faces_haar_chain(color_img) -> tuple:
 
     primary = _get_cascade("haarcascade_frontalface_default.xml")
     if primary is not None:
-        faces = primary.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
+        faces = primary.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
         if len(faces) > 0:
             return [tuple(int(v) for v in f) for f in faces], "haar_default", "high"
 
     secondary = _get_cascade("haarcascade_frontalface_alt2.xml")
     if secondary is not None:
-        faces = secondary.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
+        faces = secondary.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
         if len(faces) > 0:
             return [tuple(int(v) for v in f) for f in faces], "haar_alt2", "high"
 
@@ -300,7 +308,8 @@ def _detect_faces(color_img) -> tuple:
                     boxes.append((x, y, w, h))
                 return boxes, "yunet_dnn", "high"
         except Exception as e:
-            log.warning(f"YuNet detection failed, falling back to Haar chain: {e}")
+            log.warning(
+                f"YuNet detection failed, falling back to Haar chain: {e}")
 
     return _detect_faces_haar_chain(color_img)
 
@@ -441,12 +450,14 @@ def analyze_noise_and_frequency(image_path: str) -> dict:
         magnitude = np.log(np.abs(fft_shift) + 1)
 
         center_y, center_x = magnitude.shape[0] // 2, magnitude.shape[1] // 2
-        edge_region = np.concatenate([magnitude[:10, :].flatten(), magnitude[-10:, :].flatten()])
+        edge_region = np.concatenate(
+            [magnitude[:10, :].flatten(), magnitude[-10:, :].flatten()])
         center_region = magnitude[
-            center_y - 20 : center_y + 20, center_x - 20 : center_x + 20
+            center_y - 20: center_y + 20, center_x - 20: center_x + 20
         ].flatten()
 
-        freq_ratio = float(np.mean(center_region) / (np.mean(edge_region) + 1e-10))
+        freq_ratio = float(np.mean(center_region) /
+                           (np.mean(edge_region) + 1e-10))
 
         if noise_std < 1.5:
             flags.append(
@@ -461,7 +472,8 @@ def analyze_noise_and_frequency(image_path: str) -> dict:
                 f"FFT_ANOMALY: Unusual frequency concentration — weak indicator; can result from upscaling, sharpening filters, or AI generation"
             )
 
-        log.info(f"Noise analysis — std: {noise_std:.2f}, freq_ratio: {freq_ratio:.2f}")
+        log.info(
+            f"Noise analysis — std: {noise_std:.2f}, freq_ratio: {freq_ratio:.2f}")
 
         return {
             "noise_std": round(noise_std, 3),
@@ -509,7 +521,8 @@ def detect_face_artifacts(image_path: str) -> dict:
             )
 
         if len(faces) == 0:
-            log.info(f"No faces detected in image (chain exhausted, method={detection_method})")
+            log.info(
+                f"No faces detected in image (chain exhausted, method={detection_method})")
             return {
                 "faces_found": 0,
                 "face_boxes": [],
@@ -532,11 +545,11 @@ def detect_face_artifacts(image_path: str) -> dict:
         face_analyses = []
 
         for i, (x, y, w, h) in enumerate(faces):
-            face_roi_gray = gray[y : y + h, x : x + w]
+            face_roi_gray = gray[y: y + h, x: x + w]
 
-            inner = face_roi_gray[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4]
+            inner = face_roi_gray[h // 4: 3 * h // 4, w // 4: 3 * w // 4]
             border_top = face_roi_gray[: h // 8, :]
-            border_bot = face_roi_gray[7 * h // 8 :, :]
+            border_bot = face_roi_gray[7 * h // 8:, :]
 
             inner_laplacian = cv2.Laplacian(inner, cv2.CV_64F).var()
             border_laplacian = (
@@ -544,12 +557,14 @@ def detect_face_artifacts(image_path: str) -> dict:
                 + cv2.Laplacian(border_bot, cv2.CV_64F).var()
             ) / 2
 
-            sharpness_ratio = float(inner_laplacian / (border_laplacian + 1e-10))
+            sharpness_ratio = float(
+                inner_laplacian / (border_laplacian + 1e-10))
             skin_noise = float(np.std(face_roi_gray.astype(np.float64)))
 
             eye_count = 0
             if eye_cascade is not None:
-                eyes = eye_cascade.detectMultiScale(face_roi_gray, scaleFactor=1.1, minNeighbors=3)
+                eyes = eye_cascade.detectMultiScale(
+                    face_roi_gray, scaleFactor=1.1, minNeighbors=3)
                 eye_count = len(eyes)
 
             face_flags = []
@@ -584,7 +599,8 @@ def detect_face_artifacts(image_path: str) -> dict:
                 }
             )
 
-        log.info(f"Face artifact detection complete — {len(flags)} flags found")
+        log.info(
+            f"Face artifact detection complete — {len(flags)} flags found")
         result = {
             "faces_found": len(faces),
             "face_boxes": [list(f) for f in faces],
@@ -657,13 +673,15 @@ def classify_image_content(image_path: str) -> dict:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     scale = min(1.0, 1600.0 / max(gray.shape))
     if scale < 1.0:
-        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        gray = cv2.resize(gray, None, fx=scale, fy=scale,
+                          interpolation=cv2.INTER_AREA)
     binary = cv2.adaptiveThreshold(
         gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 15
     )
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 2))
     joined = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    contours, _ = cv2.findContours(joined, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        joined, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     image_area = gray.shape[0] * gray.shape[1]
     text_rows = 0
     rectangular_regions = 0
@@ -702,16 +720,18 @@ def analyze_ai_generation_heuristics(
         if face_boxes:
             x, y, w, h = face_boxes[0]
             x, y, w, h = int(x), int(y), int(w), int(h)
-            face = gray[y : y + h, x : x + w]
+            face = gray[y: y + h, x: x + w]
 
             if face.size > 0:
                 mid = w // 2
                 left = face[:, :mid]
-                right = face[:, mid : mid * 2] if w % 2 == 0 else face[:, mid + 1 : mid * 2 + 1]
+                right = face[:, mid: mid *
+                             2] if w % 2 == 0 else face[:, mid + 1: mid * 2 + 1]
                 right_flipped = cv2.flip(right, 1)
                 min_w = min(left.shape[1], right_flipped.shape[1])
                 if min_w > 0:
-                    diff = cv2.absdiff(left[:, :min_w], right_flipped[:, :min_w])
+                    diff = cv2.absdiff(
+                        left[:, :min_w], right_flipped[:, :min_w])
                     symmetry_score = float(np.mean(diff))
                     metrics["facial_symmetry_diff"] = round(symmetry_score, 2)
                     if symmetry_score < 4.0:
@@ -724,37 +744,48 @@ def analyze_ai_generation_heuristics(
                         )
 
                 if eye_cascade is not None:
-                    eyes = eye_cascade.detectMultiScale(face, scaleFactor=1.1, minNeighbors=3)
+                    eyes = eye_cascade.detectMultiScale(
+                        face, scaleFactor=1.1, minNeighbors=3)
                     if len(eyes) >= 2:
                         eyes_sorted = sorted(eyes, key=lambda e: e[0])[:2]
                         catchlights, eye_colors = [], []
                         for ex, ey, ew, eh in eyes_sorted:
-                            eye_roi = img[y + ey : y + ey + eh, x + ex : x + ex + ew]
+                            eye_roi = img[y + ey: y + ey +
+                                          eh, x + ex: x + ex + ew]
                             if eye_roi.size == 0:
                                 continue
-                            eye_gray = cv2.cvtColor(eye_roi, cv2.COLOR_BGR2GRAY)
+                            eye_gray = cv2.cvtColor(
+                                eye_roi, cv2.COLOR_BGR2GRAY)
                             _, max_val, _, max_loc = cv2.minMaxLoc(eye_gray)
-                            catchlights.append((max_val > 200, max_loc, eye_gray.shape))
-                            eye_colors.append(np.mean(eye_roi.reshape(-1, 3), axis=0))
+                            catchlights.append(
+                                (max_val > 200, max_loc, eye_gray.shape))
+                            eye_colors.append(
+                                np.mean(eye_roi.reshape(-1, 3), axis=0))
 
                         if len(catchlights) == 2:
-                            (has1, loc1, shape1), (has2, loc2, shape2) = catchlights
+                            (has1, loc1, shape1), (has2,
+                                                   loc2, shape2) = catchlights
                             if has1 != has2:
                                 flags.append(
                                     "EYE_CATCHLIGHT_MISMATCH: Reflection highlight present in one eye but not the other — weak-to-moderate indicator of compositing/AI generation"
                                 )
                             elif has1 and has2:
-                                norm1 = (loc1[0] / max(shape1[1], 1), loc1[1] / max(shape1[0], 1))
-                                norm2 = (loc2[0] / max(shape2[1], 1), loc2[1] / max(shape2[0], 1))
-                                pos_diff = float(np.hypot(norm1[0] - norm2[0], norm1[1] - norm2[1]))
-                                metrics["catchlight_position_diff"] = round(pos_diff, 3)
+                                norm1 = (loc1[0] / max(shape1[1], 1),
+                                         loc1[1] / max(shape1[0], 1))
+                                norm2 = (loc2[0] / max(shape2[1], 1),
+                                         loc2[1] / max(shape2[0], 1))
+                                pos_diff = float(
+                                    np.hypot(norm1[0] - norm2[0], norm1[1] - norm2[1]))
+                                metrics["catchlight_position_diff"] = round(
+                                    pos_diff, 3)
                                 if pos_diff > 0.35:
                                     flags.append(
                                         f"EYE_CATCHLIGHT_POSITION_MISMATCH: Reflection highlight sits in inconsistent positions between eyes (diff={pos_diff:.2f}) — weak indicator; light-source/reflection inconsistency is common in AI-generated faces"
                                     )
 
                         if len(eye_colors) == 2:
-                            color_diff = float(np.linalg.norm(eye_colors[0] - eye_colors[1]))
+                            color_diff = float(np.linalg.norm(
+                                eye_colors[0] - eye_colors[1]))
                             metrics["eye_color_diff"] = round(color_diff, 2)
                             if color_diff > 40:
                                 flags.append(
@@ -763,13 +794,16 @@ def analyze_ai_generation_heuristics(
 
                 ear_margin = int(w * 0.12)
                 if ear_margin > 3 and x - ear_margin >= 0 and x + w + ear_margin <= w_img:
-                    left_ear = gray[y + int(h * 0.3) : y + int(h * 0.75), x - ear_margin : x]
+                    left_ear = gray[y + int(h * 0.3): y +
+                                    int(h * 0.75), x - ear_margin: x]
                     right_ear = gray[
-                        y + int(h * 0.3) : y + int(h * 0.75), x + w : x + w + ear_margin
+                        y + int(h * 0.3): y + int(h * 0.75), x + w: x + w + ear_margin
                     ]
-                    cheek = face[int(h * 0.3) : int(h * 0.75), int(w * 0.1) : int(w * 0.3)]
+                    cheek = face[int(h * 0.3): int(h * 0.75),
+                                 int(w * 0.1): int(w * 0.3)]
                     if left_ear.size > 0 and right_ear.size > 0 and cheek.size > 0:
-                        ear_texture = float(np.std(left_ear)) + float(np.std(right_ear))
+                        ear_texture = float(
+                            np.std(left_ear)) + float(np.std(right_ear))
                         cheek_texture = float(np.std(cheek)) * 2
                         ratio = ear_texture / (cheek_texture + 1e-6)
                         metrics["ear_vs_cheek_texture_ratio"] = round(ratio, 3)
@@ -783,7 +817,8 @@ def analyze_ai_generation_heuristics(
         gh, gw = h_img // grid, w_img // grid
         if gh > 0 and gw > 0:
             densities = [
-                float(np.mean(edges[r * gh : (r + 1) * gh, c * gw : (c + 1) * gw] > 0))
+                float(
+                    np.mean(edges[r * gh: (r + 1) * gh, c * gw: (c + 1) * gw] > 0))
                 for r in range(grid)
                 for c in range(grid)
             ]
@@ -796,13 +831,15 @@ def analyze_ai_generation_heuristics(
 
             lap = cv2.Laplacian(gray, cv2.CV_64F)
             block_vars = [
-                float(np.var(lap[r * gh : (r + 1) * gh, c * gw : (c + 1) * gw]))
+                float(np.var(lap[r * gh: (r + 1) * gh, c * gw: (c + 1) * gw]))
                 for r in range(grid)
                 for c in range(grid)
             ]
             if block_vars and np.mean(block_vars) > 1e-6:
-                texture_cv = float(np.std(block_vars) / (np.mean(block_vars) + 1e-6))
-                metrics["texture_coefficient_of_variation"] = round(texture_cv, 3)
+                texture_cv = float(np.std(block_vars) /
+                                   (np.mean(block_vars) + 1e-6))
+                metrics["texture_coefficient_of_variation"] = round(
+                    texture_cv, 3)
                 if texture_cv > 2.5:
                     flags.append(
                         f"TEXTURE_INCONSISTENCY: Local texture sharpness varies unusually between image regions (CV={texture_cv:.2f}) — weak indicator; consistent with AI upsampling/inpainting patchwork"
@@ -821,14 +858,19 @@ def analyze_ai_generation_heuristics(
             if magnitude.max() > 0:
                 strong_mask = magnitude > np.percentile(magnitude, 90)
                 if np.sum(strong_mask) > 100:
-                    angles = np.arctan2(sobel_y[strong_mask], sobel_x[strong_mask])
-                    circ_var = 1 - float(np.hypot(np.mean(np.cos(angles)), np.mean(np.sin(angles))))
-                    metrics["lighting_direction_circular_variance"] = round(circ_var, 3)
+                    angles = np.arctan2(
+                        sobel_y[strong_mask], sobel_x[strong_mask])
+                    circ_var = 1 - \
+                        float(np.hypot(np.mean(np.cos(angles)),
+                              np.mean(np.sin(angles))))
+                    metrics["lighting_direction_circular_variance"] = round(
+                        circ_var, 3)
                     lighting_flag_text, _ = score_lighting_flag(circ_var)
                     if lighting_flag_text:
                         flags.append(lighting_flag_text)
 
-        log.info(f"AI-generation heuristics complete — {len(flags)} flags found")
+        log.info(
+            f"AI-generation heuristics complete — {len(flags)} flags found")
         return {
             "metrics": metrics,
             "flags": flags,
@@ -903,8 +945,10 @@ def detect_hand_artifacts(image_path: str) -> dict:
         lower = np.array([0, 30, 60], dtype=np.uint8)
         upper = np.array([25, 180, 255], dtype=np.uint8)
         mask = cv2.inRange(hsv, lower, upper)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,
+                                np.ones((5, 5), np.uint8))
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         img_area = img.shape[0] * img.shape[1]
         candidates = []
@@ -938,7 +982,8 @@ def detect_hand_artifacts(image_path: str) -> dict:
             finger_count = _count_finger_defects(c)
             if finger_count < 0:
                 region_results.append(
-                    {"region_index": idx + 1, "analyzable": False, "estimated_finger_count": None}
+                    {"region_index": idx + 1, "analyzable": False,
+                        "estimated_finger_count": None}
                 )
                 continue
             region_results.append(
@@ -990,7 +1035,8 @@ def detect_hand_artifacts(image_path: str) -> dict:
 
 
 def analyze_video_temporal_consistency(video_path: str, max_frames: int = 60) -> dict:
-    log.info(f"Analyzing video temporal consistency (sampling {max_frames} frames)...")
+    log.info(
+        f"Analyzing video temporal consistency (sampling {max_frames} frames)...")
     flags = []
 
     try:
@@ -1006,7 +1052,8 @@ def analyze_video_temporal_consistency(video_path: str, max_frames: int = 60) ->
         fps = cap.get(cv2.CAP_PROP_FPS)
         duration = total_frames / fps if fps > 0 else 0
 
-        log.info(f"Video: {total_frames} frames, {fps:.1f} FPS, {duration:.1f}s")
+        log.info(
+            f"Video: {total_frames} frames, {fps:.1f} FPS, {duration:.1f}s")
 
         sample_interval = max(1, total_frames // max_frames)
         frame_brightnesses = []
@@ -1128,7 +1175,8 @@ def analyze_audio_spectrogram(audio_path: str) -> dict:
                     "NO_SILENCE: Barely any silence detected — weak indicator; unusual for natural human speech but common in music, ambient recordings, or tightly-edited clips"
                 )
             if voiced_ratio < 0.1:
-                flags.append("MOSTLY_SILENCE: Very little voice content detected")
+                flags.append(
+                    "MOSTLY_SILENCE: Very little voice content detected")
         else:
             pitch_std = None
             pitch_mean = None
@@ -1154,7 +1202,8 @@ def analyze_audio_spectrogram(audio_path: str) -> dict:
                 "microphone quality, or synthesized audio. Additional evidence is required."
             )
 
-        log.info(f"Audio analysis complete — pitch_std: {pitch_std}, voiced_ratio: {voiced_ratio}")
+        log.info(
+            f"Audio analysis complete — pitch_std: {pitch_std}, voiced_ratio: {voiced_ratio}")
 
         return {
             "duration_seconds": round(len(y) / sr, 2),
@@ -1213,7 +1262,8 @@ def detect_lipsync_drift(video_path: str) -> dict:
             tmp_audio = tmp.name
 
         subprocess.run(
-            ["ffmpeg", "-i", video_path, "-vn", "-ar", "16000", "-ac", "1", "-y", tmp_audio],
+            ["ffmpeg", "-i", video_path, "-vn", "-ar",
+                "16000", "-ac", "1", "-y", tmp_audio],
             capture_output=True,
         )
 
@@ -1272,12 +1322,13 @@ def detect_lipsync_drift(video_path: str) -> dict:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 mouth_y_start = y + int(h * 0.65)
                 mouth_y_end = y + h
-                mouth_roi = gray[mouth_y_start:mouth_y_end, x : x + w]
+                mouth_roi = gray[mouth_y_start:mouth_y_end, x: x + w]
 
                 if prev_mouth is not None and mouth_roi.shape == prev_mouth.shape:
                     motion = float(
                         np.mean(
-                            np.abs(mouth_roi.astype(np.float64) - prev_mouth.astype(np.float64))
+                            np.abs(mouth_roi.astype(np.float64) -
+                                   prev_mouth.astype(np.float64))
                         )
                     )
                     mouth_motion.append(motion)
@@ -1307,7 +1358,8 @@ def detect_lipsync_drift(video_path: str) -> dict:
         )
 
         if np.std(mouth_motion) > 0 and np.std(audio_resampled) > 0:
-            correlation = float(np.corrcoef(mouth_motion, audio_resampled)[0, 1])
+            correlation = float(np.corrcoef(
+                mouth_motion, audio_resampled)[0, 1])
         else:
             correlation = 0.0
 
@@ -1440,7 +1492,8 @@ _CLEAN_EVIDENCE = {
 
 # PATCH 3: "LIGHTING_DIRECTION_SEVERE" added here so a near-maximal circ_var
 # reading is scored as critical (-20) rather than falling into MODERATE_KEYWORDS.
-CRITICAL_KEYWORDS = ["LIP_SYNC_DRIFT", "AI_SOFTWARE", "AI_ENCODER", "LIGHTING_DIRECTION_SEVERE"]
+CRITICAL_KEYWORDS = ["LIP_SYNC_DRIFT", "AI_SOFTWARE",
+                     "AI_ENCODER", "LIGHTING_DIRECTION_SEVERE"]
 
 MODERATE_KEYWORDS = [
     "BORDER_BLUR",
@@ -1600,12 +1653,14 @@ def calculate_forensics_score(all_flags: list, media_type: str, findings: dict =
         if severity == "critical":
             critical_present = True
             score -= 20
-            reasoning.append(f"CRITICAL_FLAG: {flag} (-20 pts — high-reliability indicator)")
+            reasoning.append(
+                f"CRITICAL_FLAG: {flag} (-20 pts — high-reliability indicator)")
         else:
             deduction, cap_note = _apply_capped_deduction(severity, tier_state)
             if deduction:
                 score -= deduction
-                reasoning.append(f"{severity.upper()}_FLAG: {flag} (-{deduction} pts)")
+                reasoning.append(
+                    f"{severity.upper()}_FLAG: {flag} (-{deduction} pts)")
             else:
                 reasoning.append(f"{severity.upper()}_FLAG: {flag}{cap_note}")
 
@@ -1626,7 +1681,8 @@ def calculate_forensics_score(all_flags: list, media_type: str, findings: dict =
         )
 
     if findings:
-        errored_modules = [k for k, v in findings.items() if v.get("module_status") == "error"]
+        errored_modules = [k for k, v in findings.items() if v.get(
+            "module_status") == "error"]
         if errored_modules:
             penalty = min(
                 INCOMPLETE_MODULE_PENALTY_PER_MODULE * len(errored_modules),
@@ -1762,7 +1818,8 @@ def build_evidence_and_explainability(findings: dict) -> tuple:
             )
             continue
 
-        info_flags = [f for f in module_flags if f.split(":")[0].endswith("_FALLBACK_MODE")]
+        info_flags = [f for f in module_flags if f.split(
+            ":")[0].endswith("_FALLBACK_MODE")]
         module_flags = [f for f in module_flags if f not in info_flags]
         for info_flag in info_flags + noise_flags:
             analysis_limitations.append(f"{label}: {info_flag}")
@@ -1771,7 +1828,8 @@ def build_evidence_and_explainability(findings: dict) -> tuple:
             clean_text = module_result.get("clean_evidence_text") or _CLEAN_EVIDENCE.get(
                 module_key, f"No anomalies detected ({label})"
             )
-            clean_confidence = module_result.get("clean_evidence_confidence", 85)
+            clean_confidence = module_result.get(
+                "clean_evidence_confidence", 85)
             evidence.append(clean_text)
             explainability.append(
                 {
@@ -1787,8 +1845,10 @@ def build_evidence_and_explainability(findings: dict) -> tuple:
                 if severity == "critical":
                     deduction, cap_note = 20, ""
                 else:
-                    deduction, cap_note = _apply_capped_deduction(severity, tier_state)
-                confidence_for_flag = {"critical": 90, "moderate": 70, "minor": 50}[severity]
+                    deduction, cap_note = _apply_capped_deduction(
+                        severity, tier_state)
+                confidence_for_flag = {"critical": 90,
+                                       "moderate": 70, "minor": 50}[severity]
                 evidence.append(flag)
                 explainability.append(
                     {
@@ -1830,7 +1890,8 @@ def run_forensics_agent(provenance_output: dict) -> dict:
     log.info("=" * 50)
 
     try:
-        provenance_output = _coerce_agent_dict(provenance_output, "provenance_output")
+        provenance_output = _coerce_agent_dict(
+            provenance_output, "provenance_output")
     except (TypeError, ValueError) as exc:
         return {
             "status": "error",
@@ -1895,7 +1956,8 @@ def run_forensics_agent(provenance_output: dict) -> dict:
         if media_type == "image":
             log.info("Running IMAGE forensics pipeline...")
 
-            source_file_path = provenance_output.get("source_file_path") or file_path
+            source_file_path = provenance_output.get(
+                "source_file_path") or file_path
             format_info = get_source_format_info(source_file_path)
             ela = run_ela_analysis_v2(source_file_path, format_info)
             findings["ela"] = ela
@@ -2046,7 +2108,8 @@ def run_forensics_agent(provenance_output: dict) -> dict:
                 "no verified positive provenance was available."
             )
         confidence = compute_confidence(forensics_score, findings)
-        evidence, explainability, analysis_limitations = build_evidence_and_explainability(findings)
+        evidence, explainability, analysis_limitations = build_evidence_and_explainability(
+            findings)
         next_step = determine_next_step(media_authenticity, confidence)
 
         if media_authenticity == "UNCERTAIN" and forensics_score >= 70:
@@ -2114,7 +2177,8 @@ def run_forensics_agent(provenance_output: dict) -> dict:
 # 4. Run this cell Eti3
 # ============================================================
 
-if False:  # Legacy pasted-JSON fixture retained only as reference; never executed.
+# Legacy pasted-JSON fixture retained only as reference; never executed.
+if False:
 
     # ── PASTE AGENT 2 OUTPUT HERE AS RAW JSON ──
     agent2_output = r"""
@@ -2210,8 +2274,8 @@ if False:  # Legacy pasted-JSON fixture retained only as reference; never execut
 
 if __name__ == "__main__":
     import sys
-    from ingestor import run_ingestor_agent
-    from provinence import run_provenance_agent
+    from agent.ingestor import run_ingestor_agent
+    from agent.provinence import run_provenance_agent
 
     local_image = sys.argv[1] if len(sys.argv) > 1 else "imageprocessor.jpeg"
     ingestor_result = run_ingestor_agent(local_image)
