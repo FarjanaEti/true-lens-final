@@ -1,0 +1,14 @@
+Pillow
+requests
+yt-dlp
+exifread
+mutagen
+numpy
+opencv-python-headless<5
+scipy
+pytesseract
+ImageHash
+beautifulsoup4
+
+# Optional cryptographic Content Credentials verification:
+# c2pa-python
