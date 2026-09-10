@@ -10,6 +10,7 @@ import hashlib
 import mimetypes
 import tempfile
 import subprocess
+import shutil
 import requests
 from pathlib import Path
 from datetime import datetime
@@ -49,18 +50,11 @@ def classify_input(user_input: str) -> str:
     if any(x in url_lower for x in ["youtube.com", "youtu.be"]):
         return "youtube_url"
 
-    if any(
-        x in url_lower
-        for x in [
-            "facebook.com",
-            "fb.watch",
-            "instagram.com",
-            "tiktok.com",
-            "twitter.com",
-            "x.com",
-            "whatsapp.com",
-        ]
-    ):
+    hostname = (parsed.hostname or "").lower().removeprefix("www.")
+    if hostname == "facebook.com" or hostname.endswith(".facebook.com") or hostname == "fb.watch":
+        return "facebook_post_url"
+
+    if any(x in hostname for x in ["instagram.com", "tiktok.com", "twitter.com", "x.com"]):
         return "social_media"
 
     if url_lower.endswith(".m3u8"):
@@ -80,8 +74,11 @@ def classify_input(user_input: str) -> str:
         ".mp3",
         ".wav",
     ]
-    if any(url_lower.endswith(ext) for ext in media_extensions):
-        return "direct_media"
+    url_path = parsed.path.lower()
+    if any(url_path.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"]):
+        return "direct_image_url"
+    if any(url_path.endswith(ext) for ext in media_extensions):
+        return "direct_media_url"
 
     # Default — try with yt-dlp anyway (supports 1000+ sites)
     return "social_media"
@@ -171,7 +168,7 @@ def download_media(
         log.info("Local file — skipping download step")
         return user_input
 
-    if input_type in ("youtube_url", "social_media", "hls_stream"):
+    if input_type in ("youtube_url", "facebook_post_url", "social_media", "hls_stream"):
         log.info(f"Downloading via yt-dlp from: {user_input}")
 
         # FIX: use the video/post ID instead of the (often huge) title
@@ -206,17 +203,25 @@ def download_media(
         log.info(f"Downloaded to: {downloaded_path}")
         return downloaded_path
 
-    if input_type == "direct_media":
+    if input_type in ("direct_image_url", "direct_media_url"):
         log.info(f"Downloading direct media from: {user_input}")
 
         response = requests.get(user_input, stream=True, timeout=30)
         response.raise_for_status()
 
+        declared_size = int(response.headers.get("content-length", "0") or 0)
+        if declared_size > MAX_FILE_SIZE_MB * 1024 * 1024:
+            raise ValueError("DOWNLOAD_TOO_LARGE: Remote media exceeds the configured size limit")
+
         ext = Path(urlparse(user_input).path).suffix or ".tmp"
         output_path = os.path.join(temp_dir, f"downloaded_media{ext}")
 
+        downloaded_bytes = 0
         with open(output_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
+                downloaded_bytes += len(chunk)
+                if downloaded_bytes > MAX_FILE_SIZE_MB * 1024 * 1024:
+                    raise ValueError("DOWNLOAD_TOO_LARGE: Remote media exceeds the configured size limit")
                 f.write(chunk)
 
         log.info(f"Downloaded to: {output_path}")
@@ -232,6 +237,14 @@ def download_media(
 
 def detect_media_type(file_path: str) -> str:
     log.info(f"Detecting media type of: {file_path}")
+
+    # Decode images first so URL suffixes and Content-Type cannot spoof them.
+    try:
+        with Image.open(file_path) as image:
+            if (image.format or "").upper() in SUPPORTED_IMAGE_FORMATS:
+                return "image"
+    except (UnidentifiedImageError, OSError):
+        pass
 
     mime_type, _ = mimetypes.guess_type(file_path)
 
@@ -296,6 +309,9 @@ def validate_local_image(file_path: str) -> dict:
 def canonicalize_video(input_path: str, output_path: str) -> str:
     log.info("Canonicalizing video to MP4 (H.264 + AAC)...")
 
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("FFMPEG_UNAVAILABLE: ffmpeg is required for video normalization")
+
     result = subprocess.run(
         [
             "ffmpeg",
@@ -339,6 +355,9 @@ def canonicalize_image(input_path: str, output_path: str) -> str:
 
 def canonicalize_audio(input_path: str, output_path: str) -> str:
     log.info("Canonicalizing audio to WAV...")
+
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("FFMPEG_UNAVAILABLE: ffmpeg is required for audio normalization")
 
     result = subprocess.run(
         ["ffmpeg", "-i", input_path, "-ar", "44100", "-ac", "2", "-y", output_path],
@@ -421,8 +440,16 @@ def run_ingestor_agent(user_input: str, cookies_file: str = None) -> dict:
             if media_type == "unsupported":
                 raise ValueError("Unsupported media type — cannot process")
 
-            source_path = os.path.abspath(downloaded_path)
-            source_hash = generate_fingerprint(source_path)
+            downloaded_path = os.path.abspath(downloaded_path)
+            source_hash = generate_fingerprint(downloaded_path)
+            source_path = downloaded_path
+            if input_type != "local_file":
+                source_suffix = Path(downloaded_path).suffix.lower() or ".bin"
+                source_path = os.path.join(
+                    os.getcwd(), f"source_media_{source_hash[:16]}{source_suffix}"
+                )
+                if not os.path.exists(source_path):
+                    shutil.copy2(downloaded_path, source_path)
             image_info = None
             if media_type == "image":
                 image_info = validate_local_image(source_path)
@@ -436,7 +463,7 @@ def run_ingestor_agent(user_input: str, cookies_file: str = None) -> dict:
                 canonical_format = "png"
             else:
                 canonical_path, canonical_format = canonicalize(
-                    downloaded_path, media_type, output_dir
+                    source_path, media_type, output_dir
                 )
 
             normalized_hash = generate_fingerprint(canonical_path)
@@ -449,7 +476,8 @@ def run_ingestor_agent(user_input: str, cookies_file: str = None) -> dict:
                 "canonical_format": canonical_format,
                 "file_hash": source_hash if media_type == "image" else normalized_hash,
                 "normalized_file_path": canonical_path,
-                "source_file_path": source_path if input_type == "local_file" else None,
+                "source_file_path": source_path,
+                "downloaded_file_path": source_path,
                 "source_file_hash": source_hash,
                 "normalized_file_hash": normalized_hash,
                 "image_info": image_info,
@@ -462,9 +490,25 @@ def run_ingestor_agent(user_input: str, cookies_file: str = None) -> dict:
 
         except Exception as e:
             log.error(f"Ingestor Agent FAILED: {str(e)}")
+            input_type = locals().get("input_type", "unsupported")
+            message = str(e)
+            if "FFMPEG_UNAVAILABLE" in message:
+                error_code = "DEPENDENCY_UNAVAILABLE"
+            elif input_type == "facebook_post_url" and any(
+                token in message.lower() for token in ("login", "private", "cookie", "403", "forbidden")
+            ):
+                error_code = "FACEBOOK_ACCESS_DENIED"
+            elif input_type in {"youtube_url", "facebook_post_url", "social_media"}:
+                error_code = "MEDIA_DOWNLOAD_FAILED"
+            elif input_type in {"direct_image_url", "direct_media_url"}:
+                error_code = "DIRECT_DOWNLOAD_FAILED"
+            else:
+                error_code = "INGESTION_FAILED"
             return {
                 "status": "error",
-                "error_message": str(e),
+                "input_type": input_type,
+                "error_code": error_code,
+                "error_message": message,
                 "processed_at": datetime.now().isoformat(),
                 "ready_for_next_agent": False,
             }

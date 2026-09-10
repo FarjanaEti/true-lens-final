@@ -11,6 +11,8 @@ import json
 import re
 import os
 import shutil
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # !apt install - y tesseract-ocr ffmpeg
 # !pip install pytesseract Pillow requests openai-whisper imagehash
@@ -660,7 +662,8 @@ def check_visual_similarity(
                 "VISUAL_SIMILARITY_NO_DATABASE: No known-image database is populated; "
                 "hashing was skipped and this result has no evidentiary weight."
             ],
-            "module_status": "not_applicable",
+            "module_status": "NOT_CHECKED",
+            "reason": "NO_REFERENCE_DATABASE",
         }
 
     if not IMAGEHASH_AVAILABLE:
@@ -893,13 +896,39 @@ def extract_key_frames(video_path: str, num_frames: int = 8) -> list:
 # ============================================================
 
 
-def _prepare_image_ocr_variants(file_path: str) -> list:
+def _detect_text_regions(image, max_regions: int = 8) -> list:
+    """Return bounded, reading-order text crops using inexpensive morphology."""
+    rgb = image.convert("RGB")
+    gray = cv2.cvtColor(__import__("numpy").array(rgb), cv2.COLOR_RGB2GRAY)
+    # A wide kernel joins glyphs into lines without merging whole columns.
+    binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(15, gray.shape[1] // 60), 3))
+    joined = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+    contours = cv2.findContours(joined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
+    candidates = []
+    image_area = gray.shape[0] * gray.shape[1]
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        area = w * h
+        if w < 60 or h < 10 or area < image_area * .00035 or area > image_area * .45:
+            continue
+        pad = max(4, int(h * .18))
+        box = (max(0, x-pad), max(0, y-pad), min(rgb.width, x+w+pad), min(rgb.height, y+h+pad))
+        candidates.append((area, y, x, box))
+    # Prefer meaningful large regions, then restore reading order.
+    chosen = sorted(candidates, reverse=True)[:max_regions]
+    chosen.sort(key=lambda item: (item[1], item[2]))
+    return [(f"text_region_{index+1}", rgb.crop(item[3])) for index, item in enumerate(chosen)]
+
+
+def _prepare_image_ocr_variants(file_path: str, layout_aware: bool = True) -> list:
     """Build conservative OCR variants without modifying the source image."""
     with Image.open(file_path) as source:
-        base = ImageOps.exif_transpose(source).convert("RGB")
-        longest = max(base.size)
-        if longest < 2200:
-            scale = min(3.0, 2200 / max(longest, 1))
+        original = ImageOps.exif_transpose(source).convert("RGB")
+        base = original
+        longest = max(original.size)
+        if longest < 1600:
+            scale = min(2.0, 1600 / max(longest, 1))
             base = base.resize(
                 (max(1, int(base.width * scale)),
                  max(1, int(base.height * scale))),
@@ -910,18 +939,84 @@ def _prepare_image_ocr_variants(file_path: str) -> list:
     contrast = ImageEnhance.Contrast(ImageOps.autocontrast(gray)).enhance(1.5)
     denoised = contrast.filter(ImageFilter.MedianFilter(size=3))
     cv_gray = cv2.cvtColor(cv2.imread(file_path), cv2.COLOR_BGR2GRAY)
-    if max(cv_gray.shape) < 2200:
-        scale = min(3.0, 2200 / max(cv_gray.shape))
+    if max(cv_gray.shape) < 1600:
+        scale = min(2.0, 1600 / max(cv_gray.shape))
         cv_gray = cv2.resize(cv_gray, None, fx=scale,
                              fy=scale, interpolation=cv2.INTER_CUBIC)
     adaptive = cv2.adaptiveThreshold(
         cv_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 15
     )
-    return [
-        ("orientation_corrected", base, "--oem 3 --psm 3"),
+    variants = [
+        ("orientation_corrected", original, "--oem 3 --psm 3"),
+        ("upscaled_sparse", base, "--oem 3 --psm 11"),
         ("document_grayscale", denoised, "--oem 3 --psm 4"),
         ("document_threshold", Image.fromarray(adaptive), "--oem 3 --psm 6"),
     ]
+    if layout_aware:
+        for name, crop in _detect_text_regions(original):
+            scale = max(1.0, min(3.0, 70.0 / max(crop.height, 1)))
+            if scale > 1.05:
+                crop = crop.resize((int(crop.width*scale), int(crop.height*scale)), Image.Resampling.LANCZOS)
+            crop = ImageEnhance.Contrast(ImageOps.autocontrast(ImageOps.grayscale(crop))).enhance(1.35)
+            variants.append((name, crop, "--oem 3 --psm 7" if crop.width > crop.height * 4 else "--oem 3 --psm 6"))
+    return variants
+
+
+def _ocr_quality(text: str, confidence=None) -> dict:
+    """Score readability/script consistency rather than rewarding raw length."""
+    value = unicodedata.normalize("NFC", str(text or "")).strip()
+    chars = [ch for ch in value if not ch.isspace()]
+    if not chars:
+        return {"score": 0.0, "bangla_coverage": 0.0, "english_coverage": 0.0}
+    alnum = sum(ch.isalnum() for ch in chars)
+    letters = sum(ch.isalpha() for ch in chars)
+    bangla = sum("\u0980" <= ch <= "\u09ff" for ch in chars)
+    latin = sum("a" <= ch.casefold() <= "z" for ch in chars)
+    suspicious = sum(not (ch.isalnum() or ch in ".,:;!?%()-/'\"&+৳") for ch in chars)
+    tokens = re.findall(r"[\w\u0980-\u09ff]+", value, re.UNICODE)
+    wordlike = sum(len(token) >= 2 for token in tokens) / max(1, len(tokens))
+    repeats = len(re.findall(r"(.)\1{3,}", value, re.UNICODE))
+    score = 12 + min(18, letters * .35) + 24*(alnum/len(chars)) + 20*wordlike
+    score += 8 if len(tokens) >= 3 else 0
+    score -= 28*(suspicious/len(chars)) + min(20, repeats*5)
+    if confidence is not None:
+        score = score*.85 + max(0, min(100, float(confidence)))*.15
+    return {"score": round(max(0, min(100, score)), 1),
+            "bangla_coverage": round(100*bangla/len(chars), 1),
+            "english_coverage": round(100*latin/len(chars), 1)}
+
+
+def _available_tesseract_languages() -> list:
+    if not TESSERACT_AVAILABLE:
+        return []
+    try:
+        return sorted(set(pytesseract.get_languages(config=_tessdata_config())))
+    except Exception as exc:
+        log.warning(f"Could not enumerate Tesseract languages: {exc}")
+        return []
+
+
+def _tessdata_config() -> str:
+    """Use a bundled language pack when present, otherwise the installation default."""
+    project_data = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "tessdata"))
+    if os.path.isfile(os.path.join(project_data, "eng.traineddata")):
+        # Environment configuration works consistently with pytesseract on
+        # Windows (its config tokenizer can preserve quotes as path content).
+        os.environ["TESSDATA_PREFIX"] = project_data
+        return ""
+    return ""
+
+
+def _ocr_language_config(available: list) -> tuple[str | None, list, str]:
+    available_set = set(available)
+    missing = [language for language in ("ben", "eng") if language not in available_set]
+    if "ben" in available_set and "eng" in available_set:
+        return "ben+eng", missing, "bn+en"
+    if "ben" in available_set:
+        return "ben", missing, "bn"
+    if "eng" in available_set:
+        return "eng", missing, "en"
+    return None, missing, "unknown"
 
 
 def _merge_ocr_passes(texts: list) -> str:
@@ -929,14 +1024,15 @@ def _merge_ocr_passes(texts: list) -> str:
     texts = [text.strip() for text in texts if text and text.strip()]
     if not texts:
         return ""
-    texts.sort(key=lambda value: sum(ch.isalnum()
-               for ch in value), reverse=True)
+    texts.sort(key=lambda value: _ocr_quality(value)["score"], reverse=True)
     output_lines = []
     normalized_seen = []
     for text in texts:
         for line in text.splitlines():
             line = re.sub(r"\s+", " ", line).strip()
-            normalized = re.sub(r"[^a-z0-9]+", "", line.lower())
+            normalized = "".join(
+                ch for ch in unicodedata.normalize("NFC", line).casefold() if ch.isalnum()
+            )
             if len(normalized) < 2:
                 continue
             if any(
@@ -949,7 +1045,7 @@ def _merge_ocr_passes(texts: list) -> str:
     return "\n".join(output_lines)
 
 
-def extract_text_via_ocr(file_path: str, media_type: str) -> dict:
+def extract_text_via_ocr(file_path: str, media_type: str, layout_aware: bool = True) -> dict:
 
     log.info("Running OCR text extraction...")
 
@@ -967,19 +1063,61 @@ def extract_text_via_ocr(file_path: str, media_type: str) -> dict:
     try:
 
         if media_type == "image":
+            available_languages = _available_tesseract_languages()
+            ocr_language, missing_languages, detected_language = _ocr_language_config(available_languages)
+            if ocr_language is None:
+                return {
+                    "ocr_text": "", "ocr_text_length": 0,
+                    "flags": ["OCR_LANGUAGE_UNAVAILABLE: No supported Tesseract language data found"],
+                    "module_status": "unavailable", "available_languages": available_languages,
+                    "requested_languages": ["ben", "eng"], "missing_languages": missing_languages,
+                    "language_detected": "unknown", "ocr_attempts": [],
+                }
+            if "ben" in missing_languages:
+                flags.append(
+                    "OCR_LANGUAGE_UNAVAILABLE: Bangla (ben) language data is not installed; "
+                    "English OCR remains available but Bangla coverage is unavailable."
+                )
             ocr_attempts = []
-            for name, image, config in _prepare_image_ocr_variants(file_path):
-                try:
-                    text = pytesseract.image_to_string(
-                        image, config=config).strip()
-                    ocr_attempts.append(
-                        {"name": name, "characters": len(text)})
-                    if text:
-                        extracted_texts.append(text)
-                except Exception as pass_error:
-                    log.warning(f"OCR pass {name} failed: {pass_error}")
+            variants = _prepare_image_ocr_variants(file_path, layout_aware=layout_aware)
 
+            def run_pass(variant):
+                name, image, config = variant
+                text = pytesseract.image_to_string(
+                    image, lang=ocr_language, config=f"{config} {_tessdata_config()}".strip()
+                ).strip()
+                return name, text
+
+            with ThreadPoolExecutor(max_workers=min(4, len(variants))) as executor:
+                futures = {executor.submit(run_pass, variant): variant[0] for variant in variants}
+                for future in as_completed(futures):
+                    name = futures[future]
+                    try:
+                        _, text = future.result()
+                        quality = _ocr_quality(text)
+                        accepted = bool(text and quality["score"] >= 28)
+                        ocr_attempts.append({"name": name, "pass": name, "characters": len(text),
+                                             "quality_score": quality["score"], "language": ocr_language,
+                                             "accepted": accepted})
+                        if accepted:
+                            extracted_texts.append(text)
+                    except Exception as pass_error:
+                        log.warning(f"OCR pass {name} failed: {pass_error}")
+            ocr_attempts.sort(key=lambda item: next(
+                index for index, variant in enumerate(variants) if variant[0] == item["name"]
+            ))
         elif media_type == "video":
+
+            available_languages = _available_tesseract_languages()
+            ocr_language, missing_languages, detected_language = _ocr_language_config(available_languages)
+            if ocr_language is None:
+                return {
+                    "ocr_text": "", "ocr_text_length": 0,
+                    "flags": ["OCR_LANGUAGE_UNAVAILABLE: No supported Tesseract language data found"],
+                    "module_status": "unavailable", "available_languages": available_languages,
+                    "requested_languages": ["ben", "eng"], "missing_languages": missing_languages,
+                    "language_detected": "unknown", "ocr_attempts": [],
+                }
 
             frames = extract_key_frames(file_path, num_frames=8)
 
@@ -988,7 +1126,8 @@ def extract_text_via_ocr(file_path: str, media_type: str) -> dict:
                 try:
 
                     text = pytesseract.image_to_string(
-                        frame, config=r"--oem 3 --psm 3").strip()
+                        frame, lang=ocr_language,
+                        config=f"--oem 3 --psm 3 {_tessdata_config()}".strip()).strip()
 
                     if text:
                         extracted_texts.append(text)
@@ -1034,8 +1173,15 @@ def extract_text_via_ocr(file_path: str, media_type: str) -> dict:
             "ocr_text": combined_text,
             "ocr_text_length": len(combined_text),
             "flags": flags,
-            "module_status": "ok",
+            "module_status": "partial" if missing_languages else ("complete" if combined_text else "failed"),
             "ocr_attempts": ocr_attempts if media_type == "image" else [],
+            "available_languages": available_languages,
+            "requested_languages": ["ben", "eng"],
+            "missing_languages": missing_languages,
+            "ocr_language": ocr_language,
+            "quality_score": _ocr_quality(combined_text)["score"],
+            "coverage": {k: v for k, v in _ocr_quality(combined_text).items() if k.endswith("coverage")},
+            "language_detected": _detect_text_language(combined_text) if combined_text else detected_language,
         }
 
     except Exception as e:
@@ -1407,6 +1553,31 @@ def _regex_entities(text: str) -> dict:
     if not text:
         return entities
 
+    # Deterministic Bangla fallback; this remains useful without spaCy.
+    bangla_locations = (
+        "ঢাকা", "চট্টগ্রাম", "রাজশাহী", "খুলনা", "সিলেট", "বরিশাল", "রংপুর",
+        "ময়মনসিংহ", "ময়মনসিংহ", "বাংলাদেশ",
+    )
+    bangla_organizations = (
+        "এনটিভি", "এনটিভি অনলাইন", "ঢাকা উত্তর সিটি করপোরেশন",
+        "ঢাকা দক্ষিণ সিটি করপোরেশন", "সিটি করপোরেশন", "সরকার", "সংসদ",
+    )
+    bangla_events = (
+        "নির্বাচন", "লড়াই", "লড়াই", "দুর্ঘটনা", "আগুন", "বন্যা", "ভূমিকম্প",
+        "নিহত", "আহত", "গ্রেপ্তার", "ঘোষণা",
+    )
+    for value in bangla_locations:
+        if value in text:
+            entities["locations"].append(value)
+    for value in bangla_organizations:
+        if value in text:
+            entities["organizations"].append(value)
+    if re.search(r"\bNTV(?:\s+Online)?\b", text, re.IGNORECASE):
+        entities["organizations"].append(re.search(r"\bNTV(?:\s+Online)?\b", text, re.IGNORECASE).group(0))
+    for value in bangla_events:
+        if value in text:
+            entities["events"].append(value)
+
     # Events
     for kw in _EVENT_KEYWORDS:
 
@@ -1426,10 +1597,11 @@ def _regex_entities(text: str) -> dict:
             entities["time_references"].append(m.group(0))
 
     # Numbers
-    for m in re.finditer(r"\b(\d+)\b", text):
+    bangla_digit_map = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
+    for m in re.finditer(r"(?<!\w)([0-9০-৯]+)(?!\w)", text):
 
         try:
-            value = int(m.group(1))
+            value = int(m.group(1).translate(bangla_digit_map))
         except ValueError:
             continue
 
@@ -1618,7 +1790,8 @@ _SOCIAL_UI_PATTERNS = [
 
 def _normalize_claim_text(text: str) -> str:
     """Remove OCR punctuation artifacts without rewriting meaningful words."""
-    value = text.replace("\u2018", "'").replace(
+    value = str(text or "")
+    value = value.replace("\u2018", "'").replace(
         "\u2019", "'").replace("\ufffd", " ")
     value = re.sub(r"[|\\]{2,}", " ", value)
     value = re.sub(r"\s+", " ", value).strip(" \t\r\n,;:|_-.")
@@ -1626,7 +1799,27 @@ def _normalize_claim_text(text: str) -> str:
 
 
 def _claim_key(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+    return " ".join(
+        "".join(ch for ch in token.casefold() if ch.isalnum())
+        for token in unicodedata.normalize("NFC", _normalize_claim_text(text)).split()
+        if any(ch.isalnum() for ch in token)
+    )
+
+
+def _contains_bangla(text: str) -> bool:
+    return any("\u0980" <= ch <= "\u09ff" for ch in str(text or ""))
+
+
+def _detect_text_language(text: str) -> str:
+    bangla = sum("\u0980" <= ch <= "\u09ff" for ch in str(text or ""))
+    latin = sum("a" <= ch.casefold() <= "z" for ch in str(text or ""))
+    if bangla and latin:
+        return "bn+en"
+    if bangla:
+        return "bn"
+    if latin:
+        return "en"
+    return "unknown"
 
 
 def _is_social_ui_or_ocr_garbage(text: str) -> bool:
@@ -1642,13 +1835,14 @@ def _is_social_ui_or_ocr_garbage(text: str) -> bool:
     alpha = sum(ch.isalpha() for ch in value)
     if alnum and (alpha / alnum) < 0.55:
         return True
-    words = re.findall(r"[A-Za-z]{2,}", value)
-    if len(words) < 4:
+    words = re.findall(r"[^\W\d_]+", value, re.UNICODE)
+    # Dates, locations and short headline fragments can still be searchable.
+    if len(words) < 2 and not re.search(r"(?:19|20)\d{2}|\d{1,2}[-/.]\d{1,2}", value):
         return True
     # Random all-caps OCR headers are common in social screenshots. Preserve
     # known acronyms by applying this only to short, mostly uppercase fragments.
     letters = "".join(words)
-    if len(words) <= 7 and letters and sum(ch.isupper() for ch in letters) / len(letters) > 0.85:
+    if not _contains_bangla(value) and len(words) <= 7 and letters and sum(ch.isupper() for ch in letters) / len(letters) > 0.85:
         return True
     return False
 
@@ -1692,7 +1886,7 @@ def _is_fact_checkable_sentence(sentence: str) -> tuple[bool, str]:
     s = _normalize_claim_text(sentence)
     low = s.lower()
 
-    if len(s) < 20:
+    if len(s) < 12:
         return False, "TOO_SHORT"
 
     if _is_social_ui_or_ocr_garbage(s):
@@ -1766,6 +1960,30 @@ def _is_fact_checkable_sentence(sentence: str) -> tuple[bool, str]:
 
     has_named_entity = bool(
         re.search(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\b", s))
+
+    if _contains_bangla(s):
+        bangla_words = re.findall(r"[\u0980-\u09ff]+", s)
+        bangla_actions = (
+            "হয়েছে", "হয়েছে", "হবে", "ছিল", "আছে", "দেখা", "ঘটেছে", "বলেছেন",
+            "জানিয়েছেন", "জানিয়েছেন", "ঘোষণা", "নিহত", "আহত", "গ্রেপ্তার", "জয়ী",
+            "লড়াই", "লড়াই", "নির্বাচন", "অপেক্ষায়", "অপেক্ষায়",
+        )
+        bangla_context = (
+            "ঢাকা", "বাংলাদেশ", "সরকার", "সিটি", "করপোরেশন", "কর্পোরেশন",
+            "মন্ত্রী", "নির্বাচন", "আজ", "গতকাল", "আগামীকাল",
+        )
+        if (len(bangla_words) >= 4 and any(word in s for word in bangla_actions)
+                and (any(word in s for word in bangla_context) or has_temporal_or_numeric_detail)):
+            return True, "BANGLA_FACTUAL_ASSERTION"
+
+        # Error-tolerant path: a partially damaged Bangla headline remains
+        # useful when it contains a place/agency/event plus another anchor.
+        bangla_events = ("বন্যা", "ভূমিকম্প", "আগুন", "দুর্ঘটনা", "নির্বাচন", "হামলা", "নিহত", "আহত")
+        anchors = sum((any(word in s for word in bangla_context),
+                       any(word in s for word in bangla_events),
+                       has_temporal_or_numeric_detail))
+        if len(bangla_words) >= 3 and anchors >= 2:
+            return True, "BANGLA_FACTUAL_FRAGMENT"
 
     # A name, place, date, or number alone is context/metadata, not an
     # assertion. Require an event/action plus some independently searchable
@@ -1887,7 +2105,7 @@ def detect_primary_claim(ocr_text: str, transcript: str, combined_entities: dict
     return None
 
 
-def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False):
+def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False, ocr_result: dict = None):
     """
     Extract only externally verifiable claims.
 
@@ -1933,7 +2151,15 @@ def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False):
         fact_checkable, reason = _is_fact_checkable_sentence(sentence)
 
         if not fact_checkable:
-            continue
+            entities = extract_entities(sentence)
+            entity_count = sum(len(value) for value in entities.values() if isinstance(value, list))
+            # Preserve imperfect but searchable fragments. Two independent
+            # anchors are required so ordinary captions/UI are not searched.
+            has_date_or_number = bool(entities.get("dates") or entities.get("numbers"))
+            has_context = bool(entities.get("locations") or entities.get("organizations") or entities.get("events"))
+            if not (entity_count >= 2 and has_date_or_number and has_context):
+                continue
+            reason = "SEARCHABLE_FACTUAL_FRAGMENT"
 
         cats = _classify_sentence(sentence)
 
@@ -1954,11 +2180,11 @@ def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False):
         )
 
         # For a generic sentence, require a stronger factual signal.
-        if not cats and not has_action:
+        if not cats and not has_action and not _contains_bangla(sentence):
             continue
 
         if (
-            not has_proper_noun
+            not has_proper_noun and not _contains_bangla(sentence)
             and not cats
             and not re.search(
                 r"\b(yesterday|today|tomorrow|" r"last night|this morning|20\d{2})\b",
@@ -1973,7 +2199,7 @@ def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False):
                 "text": sentence,
                 "entities": extract_entities(sentence),
                 "categories": cats,
-                "derivation": "SECONDARY_FACTUAL_SENTENCE",
+                "derivation": "SECONDARY_FACTUAL_SENTENCE" if fact_checkable else reason,
                 "is_primary": False,
                 "claim_type": "FACTUAL_CLAIM",
                 "is_fact_checkable": True,
@@ -1984,7 +2210,9 @@ def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False):
     deduped = []
 
     for claim in claims:
+        original_ocr_text = claim["text"]
         claim["text"] = _normalize_claim_text(claim["text"])
+        claim["original_ocr_text"] = original_ocr_text
         normalized = _claim_key(claim["text"])
 
         if normalized in seen or any(
@@ -2005,6 +2233,17 @@ def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False):
         "reliable_claims": len(deduped),
         "filtered_claims": max(0, len(raw_candidates) - len(deduped)),
     }
+    for claim in deduped:
+        claim["language"] = _detect_text_language(claim["text"])
+        quality = float((ocr_result or {}).get("quality_score", 0) or 0)
+        base = 0.8 if claim.get("is_primary") else (0.7 if claim.get("derivation") == "SECONDARY_FACTUAL_SENTENCE" else 0.4)
+        claim["confidence"] = round(min(base, quality / 100) if quality else base, 2)
+        claim.setdefault("original_ocr_text", claim["text"])
+        claim["raw_ocr_text"] = claim["original_ocr_text"]
+        claim["normalized_text"] = claim["text"]
+        claim["claim_text"] = claim["text"]
+        claim["source_region"] = claim.get("source_region", "merged_ocr")
+        claim["ocr_quality"] = quality or None
     return (deduped, stats) if return_stats else deduped
 
 
@@ -2066,7 +2305,9 @@ def build_search_queries(
     org = entities["organizations"][0] if entities.get(
         "organizations") else None
 
-    combos = []
+    # Keep Unicode intact. Exact/original and entity queries complement one
+    # another; no fabricated translation is introduced.
+    combos = [claim_text[:180]] if claim_text.strip() else []
 
     if event and location:
         combos.append(f"{event} {location}")
@@ -2677,8 +2918,11 @@ def verify_claims(claims: list) -> dict:
                 trusted = search_trusted_sources(
                     query, max_results=MAX_RESULTS_PER_QUERY)
                 search_cache[cache_key] = trusted
-                external_searches_performed += int(
-                    trusted.get("requests_made", 0) or 0)
+                # Count the routed provider query even when its circuit breaker
+                # rejects network I/O; requests_made remains provider detail.
+                external_searches_performed += max(
+                    1, int(trusted.get("requests_made", 0) or 0)
+                )
             search_statuses.append(trusted.get(
                 "status", "INSUFFICIENT_EVIDENCE"))
 
@@ -2913,6 +3157,9 @@ def verify_claims(claims: list) -> dict:
         claim_results.append(
             {
                 "claim": claim["text"],
+                "language": claim.get("language", _detect_text_language(claim["text"])),
+                "ocr_confidence": claim.get("confidence"),
+                "original_ocr_text": claim.get("original_ocr_text", claim["text"]),
                 "claim_type": claim.get("claim_type", "FACTUAL_CLAIM"),
                 "is_fact_checkable": claim.get("is_fact_checkable", True),
                 "is_primary_claim": claim.get("is_primary", False),
@@ -3271,7 +3518,18 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
         # OCR
         # ----------------------------------------------------
 
-        ocr_result = extract_text_via_ocr(file_path, media_type)
+        content_info = (forensics_output.get("raw_findings", {}) or {}).get(
+            "content_classification", {}
+        )
+        layout_aware = media_type == "image" and (
+            content_info.get("document_like")
+            or content_info.get("content_type") == "DOCUMENT_OR_LAYOUT"
+        )
+        # Unknown image content still receives bounded region detection; known
+        # natural scenes retain the cheaper whole-image passes.
+        if media_type == "image" and not content_info:
+            layout_aware = True
+        ocr_result = extract_text_via_ocr(file_path, media_type, layout_aware=layout_aware)
 
         all_flags.extend(ocr_result.get("flags", []))
 
@@ -3319,7 +3577,7 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
         # ----------------------------------------------------
 
         claims, claim_filter_stats = extract_claims(
-            ocr_text, transcript, return_stats=True)
+            ocr_text, transcript, return_stats=True, ocr_result=ocr_result)
 
         if not claims:
 
@@ -3395,7 +3653,19 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
             "visual_similarity": visual_similarity_result,
             "ocr_text": ocr_text,
             "transcript": transcript,
-            "language_detected": transcript_result.get("language"),
+            "language_detected": ocr_result.get("language_detected") or transcript_result.get("language"),
+            "ocr": {
+                "status": ocr_result.get("module_status"),
+                "language": ocr_result.get("ocr_language"),
+                "selected_language": ocr_result.get("ocr_language"),
+                "available_languages": ocr_result.get("available_languages", []),
+                "missing_languages": ocr_result.get("missing_languages", []),
+                "attempts": ocr_result.get("ocr_attempts", []),
+                "passes": ocr_result.get("ocr_attempts", []),
+                "quality_score": ocr_result.get("quality_score", 0),
+                "coverage": ocr_result.get("coverage", {}),
+                "text": ocr_text,
+            },
             "routing_reason": routing_reason,
             "modules": {
                 "ocr": ocr_result.get("module_status"),

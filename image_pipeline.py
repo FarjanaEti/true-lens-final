@@ -1,4 +1,4 @@
-"""Programmatic local-image orchestration for the existing TrueLens agents."""
+"""Unified TrueLens orchestration for local files and supported URLs."""
 
 import json
 import os
@@ -31,17 +31,23 @@ def make_final_decision(provenance, forensics, cross_reference, ingestor=None):
     return run_decision_engine(ingestor, provenance, forensics, cross_reference)
 
 
-def run_local_image_pipeline(local_image: str) -> dict:
-    """Run Ingestor -> Provenance -> Forensics -> Cross-Reference without pasted JSON."""
+def run_pipeline(user_input: str, cookies_file: str = None) -> dict:
+    """Run the existing four agents and Decision Engine for one normalized input."""
     pipeline_started = time.perf_counter()
-    local_image = os.path.abspath(local_image)
+    if not str(user_input).lower().startswith(("http://", "https://")):
+        user_input = os.path.abspath(user_input)
 
-    ingestor, ingest_ms = _timed_call(run_ingestor_agent, local_image)
-    if not ingestor.get("ready_for_next_agent") or ingestor.get("media_type") != "image":
+    if cookies_file is None:
+        ingestor, ingest_ms = _timed_call(run_ingestor_agent, user_input)
+    else:
+        ingestor, ingest_ms = _timed_call(run_ingestor_agent, user_input, cookies_file)
+    if not ingestor.get("ready_for_next_agent") or ingestor.get("media_type") not in {
+        "image", "video", "audio"
+    }:
         return {
             "status": "error",
             "stage": "ingestor",
-            "error_message": ingestor.get("error_message", "Input is not a supported image"),
+            "error_message": ingestor.get("error_message", "Input is not supported"),
             "agents": {"ingestor": ingestor},
             "final_decision": run_decision_engine(ingestor, None, None, None),
             "ready_for_display": True,
@@ -77,7 +83,8 @@ def run_local_image_pipeline(local_image: str) -> dict:
     return {
         "status": "completed",
         "processed_at": datetime.now(timezone.utc).isoformat(),
-        "media_type": "image",
+        "input_type": ingestor.get("input_type"),
+        "media_type": ingestor.get("media_type"),
         "agents": {
             "ingestor": ingestor,
             "provenance": provenance,
@@ -96,7 +103,12 @@ def run_local_image_pipeline(local_image: str) -> dict:
     }
 
 
+def run_local_image_pipeline(local_image: str) -> dict:
+    """Backward-compatible local-image entry point."""
+    return run_pipeline(local_image)
+
+
 if __name__ == "__main__":
-    image_path = sys.argv[1] if len(sys.argv) > 1 else "imageprocessor.jpeg"
-    decision_output = run_local_image_pipeline(image_path)["final_decision"]
-    print(json.dumps(decision_output, indent=2))
+    input_value = sys.argv[1] if len(sys.argv) > 1 else "imageprocessor.jpeg"
+    cookies = sys.argv[2] if len(sys.argv) > 2 else None
+    print(json.dumps(run_pipeline(input_value, cookies), indent=2))

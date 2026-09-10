@@ -10,5 +10,12 @@ pytesseract
 ImageHash
 beautifulsoup4
 
+# pytesseract is only the Python wrapper. Install Tesseract separately with
+# both English and Bangla trained data (language IDs: eng and ben).
+# Debian/Ubuntu: apt install tesseract-ocr tesseract-ocr-eng tesseract-ocr-ben
+# Windows: install Tesseract, then place ben.traineddata in its tessdata folder.
+
 # Optional cryptographic Content Credentials verification:
 # c2pa-python
+
+# Optional video/audio coverage: FFmpeg/ffprobe, openai-whisper, librosa

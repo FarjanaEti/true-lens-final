@@ -16,6 +16,13 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from image_pipeline import run_local_image_pipeline
+from agent import crossReff as crossref_module
+
+# Media regressions are deterministic and offline. Search routing itself is
+# covered separately with a mocked provider in test_multilingual_and_ingestion.
+crossref_module.search_trusted_sources = lambda query, max_results=5: {
+    'found': False, 'results': [], 'requests_made': 0, 'status': 'NOT_CHECKED'
+}
 
 CASES = [
     ('normal_jpeg', 'c2pa_adobe_positive.jpg'),
@@ -26,6 +33,8 @@ CASES = [
     ('c2pa_positive', 'adobe-20220124-C.jpg'),
     ('no_meaningful_claims', 'canonical_image_75a8da33f6eaf1e1.png'),
 ]
+if (ROOT / 'chek.jpeg').exists():
+    CASES.append(('bangla_ntv_news_graphic', 'chek.jpeg'))
 
 
 def main():
@@ -56,6 +65,17 @@ def main():
                     assert agents['provenance']['metadata']['exif_status'] == 'PRESENT'
                 if label == 'no_meaningful_claims':
                     assert agents['cross_reference']['claims_checked'] == 0
+                if label == 'bangla_ntv_news_graphic':
+                    crossref = agents['cross_reference']
+                    content = agents['forensics']['raw_findings']['content_classification']
+                    assert content['document_like'] is True
+                    assert agents['forensics']['raw_findings']['face_artifacts']['module_status'] == 'not_applicable'
+                    if 'ben' in crossref.get('ocr', {}).get('missing_languages', []):
+                        assert crossref['ocr']['status'] == 'partial'
+                        assert any('OCR_LANGUAGE_UNAVAILABLE' in flag for flag in crossref['flags'])
+                    else:
+                        assert crossref['analysis_summary']['reliable_claims_after_filtering'] > 0
+                        assert crossref['external_searches_performed'] > 0
                 report = {
                     'case': label, 'file': filename, 'category': decision['category'],
                     'confidence': decision['confidence'], 'likelihood': decision['likelihood'],

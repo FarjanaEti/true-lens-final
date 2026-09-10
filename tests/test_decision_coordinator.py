@@ -59,3 +59,11 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(result['final_decision']['category'], 'Needs Review')
         self.assertFalse(result['final_decision']['decision_state']['cross_reference_available'])
         self.assertEqual(len(result['final_decision']['agent_summary']), 4)
+
+    def test_unified_coordinator_routes_video_through_same_agents(self):
+        self.outputs[0]['media_type'] = 'video'
+        result = self.pipeline.run_pipeline('example.mp4')
+        self.calls[1].assert_called_once_with(self.outputs[0])
+        self.calls[2].assert_called_once_with(self.outputs[1])
+        self.calls[3].assert_called_once_with(self.outputs[1], self.outputs[2])
+        self.assertEqual(result['media_type'], 'video')

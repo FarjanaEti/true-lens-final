@@ -683,7 +683,7 @@ def check_c2pa_signature(file_path: str) -> dict:
     if found_markers:
         result["c2pa_present"] = True
         result["presence_status"] = "PRESENT"
-        result["c2pa_status"] = "C2PA_MARKER_FOUND"
+        result["c2pa_status"] = "C2PA_PRESENT"
         result["note"] = (
             f"C2PA markers found in binary: {found_markers}. This confirms a C2PA "
             "manifest is embedded, but NOT that it is valid — full cryptographic "
@@ -720,7 +720,7 @@ def check_c2pa_signature(file_path: str) -> dict:
             result["c2pa_valid"] = reader.is_valid
             result["presence_status"] = "PRESENT"
             result["verification_status"] = "VALID" if reader.is_valid else "INVALID"
-            result["c2pa_status"] = "C2PA_VERIFIED" if reader.is_valid else "C2PA_INVALID"
+            result["c2pa_status"] = "C2PA_VERIFIED" if reader.is_valid else "C2PA_NOT_VERIFIED"
 
             if manifest:
                 signature_info = manifest.get("signature_info") or {}
@@ -747,6 +747,8 @@ def check_c2pa_signature(file_path: str) -> dict:
 
     except ImportError:
         result["verification_status"] = "NOT_AVAILABLE"
+        if result["c2pa_present"]:
+            result["c2pa_status"] = "C2PA_NOT_AVAILABLE"
         result["note"] = (
             "C2PA markers were found, but c2pa-python is not installed; cryptographic "
             "verification is NOT_AVAILABLE."
@@ -756,8 +758,8 @@ def check_c2pa_signature(file_path: str) -> dict:
         )
 
     except Exception as e:
-        result["c2pa_status"] = "C2PA_CHECK_FAILED"
-        result["verification_status"] = "NOT_CHECKED"
+        result["c2pa_status"] = "C2PA_NOT_VERIFIED" if result["c2pa_present"] else "NO_C2PA"
+        result["verification_status"] = "FAILED" if result["c2pa_present"] else "NOT_CHECKED"
         result["note"] = f"C2PA verification failed: {e}"
 
         log.warning(f"C2PA verification failed: {e}")
@@ -970,17 +972,14 @@ def calculate_provenance_score(
         reasoning.append(
             "C2PA_VERIFIED: Cryptographic signature verified — strong authenticity signal"
         )
-    elif c2pa_status == "C2PA_MARKER_FOUND":
-        score += 10
+    elif c2pa_status in {"C2PA_PRESENT", "C2PA_NOT_AVAILABLE", "C2PA_NOT_VERIFIED"}:
         reasoning.append(
             "C2PA_MARKER_FOUND: Markers present but not cryptographically verified")
-    elif c2pa_status == "C2PA_VERIFICATION_FAILED":
-        score -= 10
+    elif c2pa_status == "C2PA_VERIFICATION_FAILED":  # legacy compatibility
         reasoning.append(
             "C2PA_VERIFICATION_FAILED: Markers present but verification failed — more suspicious than no C2PA at all"
         )
     else:  # NO_C2PA
-        score -= 3
         reasoning.append(
             "NO_C2PA:No C2PA Content Credentials were found.This is only a weak negative signal because most online videoscurrently do not contain C2PA manifests."
         )
@@ -1016,7 +1015,10 @@ def calculate_provenance_score(
     # ── Weak metadata-flag scoring (small, confidence-weighted, capped) ──
     metadata_penalty = 0
     for flag in metadata_flags:
-        if flag["flag"].startswith(("NO_EXIF:", "NO_THUMBNAIL:", "NO_ICC_PROFILE:")):
+        if flag["flag"].startswith((
+            "NO_EXIF:", "NO_THUMBNAIL:", "NO_ICC_PROFILE:",
+            "XMP_METADATA_PRESENT:", "IPTC_METADATA_PRESENT:",
+        )):
             continue
         weight = _CONFIDENCE_PENALTY.get(flag["confidence"], 1)
         metadata_penalty += weight
@@ -1067,7 +1069,9 @@ def calculate_provenance_confidence(
 
     high_conf_flag_count = sum(
         1 for f in metadata_flags if f["confidence"] == "HIGH_CONFIDENCE")
-    has_c2pa_marker = c2pa_result.get("c2pa_status") == "C2PA_MARKER_FOUND"
+    has_c2pa_marker = c2pa_result.get("c2pa_status") in {
+        "C2PA_PRESENT", "C2PA_NOT_AVAILABLE", "C2PA_NOT_VERIFIED"
+    }
 
     if has_c2pa_marker or high_conf_flag_count >= 1:
         return "MEDIUM"
@@ -1134,7 +1138,7 @@ def run_provenance_agent(ingestor_output: dict) -> dict:
         else analysis_file_path
     )
     media_type = ingestor_output["media_type"]
-    ingestor_hash = ingestor_output["file_hash"]
+    ingestor_hash = ingestor_output.get("source_file_hash") or ingestor_output["file_hash"]
 
     try:
         all_metadata_flags = []  # list of {"flag":..., "confidence":...} dicts

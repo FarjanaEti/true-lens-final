@@ -5,7 +5,10 @@ forensics_output, crossref_output)` accepts Python dictionaries and returns a
 strictly JSON-serializable dictionary. It has no agent imports, I/O, network,
 frontend dependencies, or media-type-specific routing.
 
-The existing `run_local_image_pipeline` still returns its pipeline envelope,
+`image_pipeline.run_pipeline(input, cookies_file=None)` is the unified coordinator
+for local images, local videos, direct image URLs, YouTube URLs, and public
+Facebook post URLs. `run_local_image_pipeline` remains a compatibility wrapper.
+Both return the pipeline envelope,
 agent outputs, timings, and `final_decision`. Its CLI prints the decision using
 `json.dumps(decision_output, indent=2)`. Existing agent diagnostic logs can still
 precede that final JSON. Early pipeline failures also include a review decision
@@ -104,6 +107,10 @@ screenshot, newspaper/document, metadata presence, validated Adobe C2PA, and
 zero meaningful claims. JPEG and metadata cases deliberately share the same
 fixture. Full outputs are saved to `result/decision_engine_regressions.json`.
 No pre-existing automated test suite was present.
+
+Multilingual OCR requires the external Tesseract `eng` and `ben` trained-data
+packs. The agent enumerates installed languages, uses `ben+eng` when both exist,
+and reports partial or unavailable coverage when a required pack is missing.
 
 Remaining limits: upstream forensics and claim comparisons are heuristic;
 source trust is supplied by Cross-Reference; missing external search or optional

@@ -258,19 +258,40 @@ def _detect_faces_haar_chain(color_img) -> tuple:
     under the new YuNet-primary detector (see _detect_faces below)."""
     gray = cv2.cvtColor(color_img, cv2.COLOR_BGR2GRAY)
 
+    # Small faces are common in news and disaster imagery.  Try the original
+    # resolution first, then one moderate upscale; this improves recall without
+    # weakening the cascade's neighbour threshold (which would add many false
+    # positives).  Boxes are mapped back to source-image coordinates.
+    attempts = [(gray, 1.0)]
+    shortest_side = min(gray.shape[:2])
+    if shortest_side < 900:
+        upscale = min(2.0, 900.0 / max(shortest_side, 1))
+        attempts.append(
+            (cv2.resize(gray, None, fx=upscale, fy=upscale,
+                        interpolation=cv2.INTER_CUBIC), upscale)
+        )
+
     primary = _get_cascade("haarcascade_frontalface_default.xml")
     if primary is not None:
-        faces = primary.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
-        if len(faces) > 0:
-            return [tuple(int(v) for v in f) for f in faces], "haar_default", "high"
+        for attempt, scale in attempts:
+            faces = primary.detectMultiScale(
+                attempt, scaleFactor=1.1, minNeighbors=5,
+                minSize=(max(30, int(50 * scale)),) * 2)
+            if len(faces) > 0:
+                boxes = [tuple(int(round(v / scale)) for v in f) for f in faces]
+                method = "haar_default" if scale == 1.0 else "haar_default_upscaled"
+                return boxes, method, "high"
 
     secondary = _get_cascade("haarcascade_frontalface_alt2.xml")
     if secondary is not None:
-        faces = secondary.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
-        if len(faces) > 0:
-            return [tuple(int(v) for v in f) for f in faces], "haar_alt2", "high"
+        for attempt, scale in attempts:
+            faces = secondary.detectMultiScale(
+                attempt, scaleFactor=1.1, minNeighbors=5,
+                minSize=(max(30, int(50 * scale)),) * 2)
+            if len(faces) > 0:
+                boxes = [tuple(int(round(v / scale)) for v in f) for f in faces]
+                method = "haar_alt2" if scale == 1.0 else "haar_alt2_upscaled"
+                return boxes, method, "high"
 
     fallback_boxes = _fallback_face_regions(color_img)
     if fallback_boxes:
@@ -666,7 +687,13 @@ def score_lighting_flag(circ_var: float) -> tuple:
 
 
 def classify_image_content(image_path: str) -> dict:
-    """Conservatively detect document/layout images where scene lighting is meaningless."""
+    """Separate structured layouts from photographic scenes conservatively.
+
+    Texture in water, foliage, hair, and buildings creates many elongated and
+    rectangular contours.  Those shapes are candidates, not proof of text or a
+    page layout, so layout-only routing requires corroboration from their amount
+    and foreground coverage.
+    """
     img = cv2.imread(image_path)
     if img is None:
         return {"content_type": "UNKNOWN", "document_like": False, "module_status": "error"}
@@ -692,12 +719,46 @@ def classify_image_content(image_path: str) -> dict:
             text_rows += 1
         if 0.01 <= area_ratio <= 0.45 and w > 20 and h > 20:
             rectangular_regions += 1
-    document_like = text_rows >= 12 or rectangular_regions >= 8
+    foreground_density = float(np.mean(binary > 0))
+    text_row_coverage = 0.0
+    if image_area:
+        text_row_coverage = sum(
+            cv2.boundingRect(contour)[2] * cv2.boundingRect(contour)[3]
+            for contour in contours
+            if (
+                8 <= cv2.boundingRect(contour)[3]
+                <= max(12, int(gray.shape[0] * 0.08))
+                and cv2.boundingRect(contour)[2] >= cv2.boundingRect(contour)[3] * 1.8
+            )
+        ) / image_area
+
+    # Strong text-row evidence is enough for a page/news-card decision.  At
+    # lower counts, require both dense thresholded foreground and substantial
+    # row coverage.  In particular, rectangle counts alone never make a photo a
+    # document: natural scenes routinely contain many such contours.
+    strong_text_layout = text_rows >= 50
+    corroborated_layout = (
+        text_rows >= 20
+        and rectangular_regions >= 8
+        and foreground_density >= 0.18
+        and text_row_coverage >= 0.18
+    )
+    document_like = bool(strong_text_layout or corroborated_layout)
+    classification_reasons = []
+    if strong_text_layout:
+        classification_reasons.append("DENSE_TEXT_ROW_STRUCTURE")
+    if corroborated_layout:
+        classification_reasons.append("CORROBORATED_LAYOUT_STRUCTURE")
+    if not document_like:
+        classification_reasons.append("INSUFFICIENT_CORROBORATED_LAYOUT_EVIDENCE")
     return {
-        "content_type": "DOCUMENT_OR_LAYOUT" if document_like else "NATURAL_SCENE_OR_UNKNOWN",
+        "content_type": "DOCUMENT_OR_LAYOUT" if document_like else "PHOTO_SCENE",
         "document_like": document_like,
         "text_row_candidates": text_rows,
         "rectangular_region_candidates": rectangular_regions,
+        "threshold_foreground_density": round(foreground_density, 4),
+        "text_row_coverage": round(float(text_row_coverage), 4),
+        "classification_reasons": classification_reasons,
         "module_status": "ok",
     }
 
