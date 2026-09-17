@@ -57,6 +57,28 @@ class DecisionTests(unittest.TestCase):
         self.f.update(media_authenticity='MANIPULATED', confidence=60)
         self.assertEqual(self.decide()['category'], 'Needs Review')
 
+    def test_uncertain_forensic_findings_are_preserved_without_forcing_verdict(self):
+        self.f.update(
+            evidence_strength='MODERATE',
+            forensics_score=50,
+            all_flags=['FACE_ASYMMETRY_ANOMALY', 'EYE_COLOR_MISMATCH', 'LIGHTING_DIRECTION_SEVERE'],
+            explainability=[
+                {'result': 'No significant ELA anomaly', 'contribution_to_score': 0},
+                {'result': 'No GAN/frequency anomaly', 'contribution_to_score': 0},
+                {'result': 'No face-swap artifacts', 'contribution_to_score': 0},
+                {'result': 'FACE_ASYMMETRY_ANOMALY', 'contribution_to_score': -5},
+                {'result': 'EYE_COLOR_MISMATCH', 'contribution_to_score': -5},
+                {'result': 'LIGHTING_DIRECTION_SEVERE', 'contribution_to_score': -20},
+            ],
+        )
+        result = self.decide()
+        self.assertEqual(result['category'], 'Needs Review')
+        self.assertFalse(result['decision_state']['strong_manipulation_evidence'])
+        self.assertEqual(result['agent_summary']['forensics']['evidence_strength'], 'MODERATE')
+        self.assertTrue(any('LIGHTING_DIRECTION_SEVERE' in item for item in result['supporting_evidence']))
+        self.assertTrue(any('No significant ELA anomaly' in item for item in result['negative_evidence']))
+        self.assertIn('insufficient to establish manipulation', result['decision_reasons'][0])
+
     def test_context_is_distinct_from_manipulation(self):
         self.sign()
         self.claim()

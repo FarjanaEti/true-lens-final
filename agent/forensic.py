@@ -1834,6 +1834,20 @@ def compute_confidence(score: int, findings: dict) -> int:
     return confidence
 
 
+def determine_evidence_strength(dimension_severities: dict) -> str:
+    """Describe forensic evidence quality, not manipulation probability."""
+    severities = list((dimension_severities or {}).values())
+    critical_n = severities.count("critical")
+    moderate_n = severities.count("moderate")
+    if not severities:
+        return "NONE"
+    if critical_n >= 2 or (critical_n >= 1 and moderate_n >= 1):
+        return "STRONG"
+    if critical_n >= 1 or moderate_n >= 2 or len(severities) >= 2:
+        return "MODERATE"
+    return "WEAK"
+
+
 def build_evidence_and_explainability(findings: dict) -> tuple:
     evidence = []
     explainability = []
@@ -1960,6 +1974,7 @@ def run_forensics_agent(provenance_output: dict) -> dict:
             "error_message": str(exc),
             "media_authenticity": "UNCERTAIN",
             "confidence": 0,
+            "evidence_strength": "NONE",
             "ready_for_next_agent": False,
         }
     log.info("FORENSICS AGENT STARTING")
@@ -1971,6 +1986,7 @@ def run_forensics_agent(provenance_output: dict) -> dict:
             "error_message": "Previous agent did not complete successfully",
             "media_authenticity": "UNCERTAIN",
             "confidence": 0,
+            "evidence_strength": "NONE",
             "forensics_score": 0,
             "evidence": ["Provenance agent did not complete — no forensic analysis was run"],
             "explainability": [],
@@ -2000,6 +2016,7 @@ def run_forensics_agent(provenance_output: dict) -> dict:
             "error_message": f"File not found: {file_path}",
             "media_authenticity": "UNCERTAIN",
             "confidence": 0,
+            "evidence_strength": "NONE",
             "forensics_score": 0,
             "evidence": [f"Could not locate media file at {file_path}"],
             "explainability": [],
@@ -2138,6 +2155,7 @@ def run_forensics_agent(provenance_output: dict) -> dict:
                 "error_message": f"Unsupported or unrecognized media type: '{media_type}'",
                 "media_authenticity": "UNCERTAIN",
                 "confidence": 0,
+                "evidence_strength": "NONE",
                 "forensics_score": 0,
                 "evidence": [
                     f"Media type '{media_type}' is not supported by the forensics pipeline"
@@ -2154,6 +2172,7 @@ def run_forensics_agent(provenance_output: dict) -> dict:
             all_flags, media_type, findings
         )
         dimension_severities = _tally_corroboration(all_flags)
+        evidence_strength = determine_evidence_strength(dimension_severities)
         media_authenticity = classify_media_authenticity(
             forensics_score, dimension_severities, media_type
         )
@@ -2191,6 +2210,7 @@ def run_forensics_agent(provenance_output: dict) -> dict:
             "media_type": media_type,
             "media_authenticity": media_authenticity,
             "confidence": confidence,
+            "evidence_strength": evidence_strength,
             "forensics_score": forensics_score,
             "evidence": evidence,
             "recommended_next_step": next_step,
@@ -2218,6 +2238,7 @@ def run_forensics_agent(provenance_output: dict) -> dict:
             "processed_at": datetime.now().isoformat(),
             "media_authenticity": "UNCERTAIN",
             "confidence": 0,
+            "evidence_strength": "NONE",
             "forensics_score": 0,
             "evidence": [f"Forensics pipeline crashed: {str(e)}"],
             "explainability": [],

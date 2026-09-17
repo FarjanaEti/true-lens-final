@@ -43,6 +43,7 @@ class ForensicsRoutingTests(unittest.TestCase):
         self.assertNotIn("NOT_APPLICABLE", " ".join(
             findings["ai_heuristics"].get("not_applicable_checks", [])
         ))
+        self.assertIn(result["evidence_strength"], {"WEAK", "MODERATE", "STRONG"})
 
     def test_ntv_bangla_graphic_remains_document_layout(self):
         path = self._image("chek.jpeg")

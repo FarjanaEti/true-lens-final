@@ -56,6 +56,22 @@ def _safe(value):
     return str(value)
 
 
+def _forensic_evidence(forensics):
+    """Separate suspicious findings from clean checks without changing verdicts."""
+    suspicious, clean = [], []
+    for item in _list(forensics.get('explainability')):
+        item = _dict(item)
+        result = str(item.get('result') or '').strip()
+        contribution = item.get('contribution_to_score')
+        if not result:
+            continue
+        if isinstance(contribution, (int, float)) and not isinstance(contribution, bool) and contribution < 0:
+            suspicious.append(result)
+        elif contribution == 0 and result.lower().startswith(('no ', 'frame-to-frame consistency', 'lip movement')):
+            clean.append(result)
+    return list(dict.fromkeys(suspicious)), list(dict.fromkeys(clean))
+
+
 def run_decision_engine(ingestor_output, provenance_output, forensics_output, crossref_output):
     """Return explainable data from four dictionaries, tolerating missing stages.
 
@@ -82,6 +98,7 @@ def run_decision_engine(ingestor_output, provenance_output, forensics_output, cr
         'MANIPULATED', 'LIKELY_MANIPULATED', 'DEEPFAKE', 'AI_GENERATED'
     } and _confidence(f.get('confidence')) >= 85
     clean = available['forensics'] and verdict == 'AUTHENTIC'
+    forensic_suspicious, forensic_clean = _forensic_evidence(f) if available['forensics'] else ([], [])
 
     # Use claim-level evidence, never aggregate debunked_count alone. Group
     # duplicate OCR claims and independent publishers before interpreting them.
@@ -114,6 +131,8 @@ def run_decision_engine(ingestor_output, provenance_output, forensics_output, cr
         supporting.append('C2PA provenance was cryptographically validated and file integrity matches Ingestor.')
     if clean:
         supporting.append('Forensics reported no strong manipulation evidence; this is not independent proof of authenticity.')
+    supporting.extend(f'Forensic signal: {item}' for item in forensic_suspicious)
+    negative.extend(f'Forensic negative finding: {item}' for item in forensic_clean)
     if verified:
         supporting.append('Meaningful claims were corroborated by multiple trusted sources.')
     if strong_manipulation:
@@ -174,13 +193,16 @@ def run_decision_engine(ingestor_output, provenance_output, forensics_output, cr
         distribution = (90, 5, 5) if clean and verified else ((85, 5, 10) if clean else (75, 10, 15))
         reasons.append(supporting[0])
     else:
-        reasons.append('Available evidence does not establish media authenticity or strong manipulation; unknown remains neutral.')
+        if forensic_suspicious:
+            reasons.append('Suspicious forensic signals were detected, but the available evidence is insufficient to establish manipulation.')
+        else:
+            reasons.append('Available evidence does not establish media authenticity or strong manipulation; unknown remains neutral.')
     warnings.append('Likelihood values are an evidence distribution, not calibrated probabilities.')
     colors = {'Likely Authentic': 'green', 'Likely Manipulated': 'red', 'Misleading Context': 'orange', 'Needs Review': 'yellow'}
     fields = {
         'ingestor': ('status', 'media_type', 'input_type', 'image_info', 'file_hash', 'ready_for_next_agent'),
         'provenance': ('status', 'c2pa', 'integrity_check', 'metadata_summary', 'provenance_confidence'),
-        'forensics': ('status', 'media_authenticity', 'confidence', 'evidence', 'all_flags'),
+        'forensics': ('status', 'media_authenticity', 'confidence', 'evidence_strength', 'forensics_score', 'evidence', 'all_flags'),
         'cross_reference': ('status', 'claims_checked', 'verified_count', 'debunked_count', 'modules', 'visual_similarity'),
     }
     return {
