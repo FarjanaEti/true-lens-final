@@ -9,6 +9,9 @@ scipy
 pytesseract
 ImageHash
 beautifulsoup4
+fastapi
+uvicorn[standard]
+python-multipart
 
 # pytesseract is only the Python wrapper. Install Tesseract separately with
 # both English and Bangla trained data (language IDs: eng and ben).

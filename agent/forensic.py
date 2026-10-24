@@ -384,13 +384,19 @@ def run_ela_analysis(image_path: str, quality: int = 90) -> dict:
             f"ELA complete — max: {ela_max}, mean: {ela_mean:.2f}, suspicious: {suspicious_percent:.1f}%"
         )
 
-        return {
+        result = {
             "ela_max": ela_max,
             "ela_mean": round(ela_mean, 3),
             "suspicious_region_percent": round(suspicious_percent, 2),
             "flags": flags,
             "module_status": "ok",
         }
+        if not flags:
+            # ELA is an indirect JPEG consistency check, so a clean result is
+            # useful but never high-confidence proof of authenticity.
+            result["clean_evidence_text"] = "No significant compression-history anomalies detected"
+            result["clean_evidence_confidence"] = 65
+        return result
 
     except Exception as e:
         log.warning(f"ELA analysis failed: {e}")
@@ -482,7 +488,7 @@ def analyze_noise_and_frequency(image_path: str) -> dict:
 
         if noise_std < 1.5:
             flags.append(
-                f"LOW_NOISE_STD: Noise std={noise_std:.2f} — unnaturally smooth, weak indicator consistent with (but not proof of) AI generation"
+                f"LOW_NOISE_STD: Noise std={noise_std:.2f} — low residual variance; weak, non-diagnostic signal common in flat-color graphics and illustrations"
             )
         if noise_std > 30:
             flags.append(
@@ -496,13 +502,17 @@ def analyze_noise_and_frequency(image_path: str) -> dict:
         log.info(
             f"Noise analysis — std: {noise_std:.2f}, freq_ratio: {freq_ratio:.2f}")
 
-        return {
+        result = {
             "noise_std": round(noise_std, 3),
             "noise_mean": round(noise_mean, 3),
             "fft_freq_ratio": round(freq_ratio, 3),
             "flags": flags,
             "module_status": "ok",
         }
+        if not flags:
+            result["clean_evidence_text"] = "No frequency-domain anomaly was detected by the completed checks"
+            result["clean_evidence_confidence"] = 55
+        return result
 
     except Exception as e:
         log.warning(f"Noise/frequency analysis failed: {e}")
@@ -549,15 +559,16 @@ def detect_face_artifacts(image_path: str) -> dict:
                 "face_boxes": [],
                 "detection_method": detection_method,
                 "detection_confidence": "none",
-                "clean_evidence_text": (
+                "coverage_status": "partial",
+                "coverage_reason": "NO_RELIABLE_FACE_DETECTED",
+                "inconclusive_evidence_text": (
                     "No face could be located in this image by any detector in the fallback chain "
                     "(YuNet DNN, Haar primary/secondary, skin-tone heuristic) — face-artifact analysis "
                     "could not be performed. This does not confirm the image is clean; it means this "
                     "module has no opinion."
                 ),
-                "clean_evidence_confidence": 15,
                 "flags": flags,
-                "module_status": "ok",
+                "module_status": "partial",
             }
 
         log.info(
@@ -630,13 +641,31 @@ def detect_face_artifacts(image_path: str) -> dict:
             "face_analyses": face_analyses,
             "flags": flags,
             "module_status": "ok",
+            "coverage_status": "complete",
         }
-        if detection_confidence == "low" and not any(f for f in flags if not _is_noise_flag(f)):
-            result["clean_evidence_text"] = (
+        incomplete_eye_faces = [
+            item["face_index"] for item in face_analyses
+            if item.get("eyes_detected", 0) < 2
+        ]
+        if detection_confidence == "low" or incomplete_eye_faces:
+            result["module_status"] = "partial"
+            result["coverage_status"] = "partial"
+            reasons = []
+            if detection_confidence == "low":
+                reasons.append("LOW_CONFIDENCE_FACE_LOCALIZATION")
+            if incomplete_eye_faces:
+                reasons.append("FEWER_THAN_TWO_RELIABLE_EYES")
+            result["coverage_reason"] = ",".join(reasons)
+            result["inconclusive_evidence_text"] = (
                 f"Face detected via low-confidence fallback method ({detection_method}); no artifacts "
-                "found, but detection fidelity is limited so this should be weighted accordingly."
+                "found, but detection fidelity is limited so this check is inconclusive."
+                if detection_confidence == "low" else
+                "Face localization succeeded, but fewer than two reliable eyes were detected; "
+                "eye consistency checks did not run and the face result is inconclusive."
             )
-            result["clean_evidence_confidence"] = 40
+        else:
+            result["clean_evidence_text"] = "No face-swap or deepfake artifacts were found by the checks that completed."
+            result["clean_evidence_confidence"] = 70
         return result
 
     except Exception as e:
@@ -753,6 +782,10 @@ def classify_image_content(image_path: str) -> dict:
         classification_reasons.append("INSUFFICIENT_CORROBORATED_LAYOUT_EVIDENCE")
     return {
         "content_type": "DOCUMENT_OR_LAYOUT" if document_like else "PHOTO_SCENE",
+        # Keep the legacy routing field above, but expose a more useful asset
+        # type to downstream consumers. A layout is not one natural-camera
+        # scene, so portrait/lighting heuristics are gated.
+        "asset_type": "COMPOSITE_GRAPHIC" if document_like else "NATURAL_PHOTOGRAPH",
         "document_like": document_like,
         "text_row_candidates": text_rows,
         "rectangular_region_candidates": rectangular_regions,
@@ -932,13 +965,17 @@ def analyze_ai_generation_heuristics(
 
         log.info(
             f"AI-generation heuristics complete — {len(flags)} flags found")
-        return {
+        result = {
             "metrics": metrics,
             "flags": flags,
             "not_applicable_checks": not_applicable_checks,
             "content_context": content_context or {},
             "module_status": "ok",
         }
+        if not flags:
+            result["clean_evidence_text"] = "No AI-generation anomaly was detected by the heuristic checks that ran"
+            result["clean_evidence_confidence"] = 50
+        return result
 
     except Exception as e:
         log.warning(f"AI-generation heuristics analysis failed: {e}")
@@ -1564,7 +1601,6 @@ MODERATE_KEYWORDS = [
     "NO_EXIF",
     "WEAK_LIP_SYNC",
     "FFT_ANOMALY",
-    "LOW_NOISE_STD",
     "INCONSISTENT_NOISE",
     "NO_EYES",
     "EYE_ARTIFACT",
@@ -1861,6 +1897,25 @@ def build_evidence_and_explainability(findings: dict) -> tuple:
         noise_flags = [f for f in raw_flags if _is_noise_flag(f)]
         module_flags = [f for f in raw_flags if not _is_noise_flag(f)]
 
+        if status in {"not_applicable", "skipped", "unavailable", "partial"}:
+            reason = (
+                module_result.get("coverage_reason")
+                or module_result.get("skip_reason")
+                or module_result.get("inconclusive_evidence_text")
+                or (noise_flags[0] if noise_flags else f"{module_key} {status}")
+            )
+            analysis_limitations.append(
+                f"{label}: {status.upper()} — {reason}; no clean evidence was inferred."
+            )
+            explainability.append({
+                "feature_checked": label,
+                "result": str(reason),
+                "confidence": 0,
+                "contribution_to_score": 0,
+                "execution_state": "DID_NOT_COMPLETE" if status == "partial" else "DID_NOT_RUN",
+            })
+            continue
+
         if status == "error":
             reason = noise_flags[0] if noise_flags else f"{module_key} unavailable"
             evidence.append(f"{label}: unavailable — {reason}")
@@ -1899,12 +1954,9 @@ def build_evidence_and_explainability(findings: dict) -> tuple:
         for info_flag in info_flags + noise_flags:
             analysis_limitations.append(f"{label}: {info_flag}")
 
-        if not module_flags:
-            clean_text = module_result.get("clean_evidence_text") or _CLEAN_EVIDENCE.get(
-                module_key, f"No anomalies detected ({label})"
-            )
-            clean_confidence = module_result.get(
-                "clean_evidence_confidence", 85)
+        if not module_flags and module_result.get("clean_evidence_text"):
+            clean_text = module_result["clean_evidence_text"]
+            clean_confidence = module_result.get("clean_evidence_confidence", 0)
             evidence.append(clean_text)
             explainability.append(
                 {
@@ -1912,9 +1964,10 @@ def build_evidence_and_explainability(findings: dict) -> tuple:
                     "result": clean_text,
                     "confidence": clean_confidence,
                     "contribution_to_score": 0,
+                    "execution_state": "RAN_AND_FOUND_NOTHING",
                 }
             )
-        else:
+        elif module_flags:
             for flag in module_flags:
                 severity = _flag_severity(flag)
                 if severity == "critical":
@@ -1931,6 +1984,7 @@ def build_evidence_and_explainability(findings: dict) -> tuple:
                         "result": flag + cap_note,
                         "confidence": confidence_for_flag,
                         "contribution_to_score": -deduction,
+                        "execution_state": "RAN_AND_FOUND_SOMETHING",
                     }
                 )
 
@@ -2048,9 +2102,20 @@ def run_forensics_agent(provenance_output: dict) -> dict:
             findings["noise_frequency"] = noise
             all_flags.extend(noise.get("flags", []))
 
-            # A document/layout can contain many small, unrelated photographs;
-            # treating them as one face-manipulation scene creates false positives.
-            if content_context.get("document_like"):
+            # Detect faces before applying the coarse layout gate. A portrait's
+            # natural edges can otherwise be mistaken for rows of text.
+            detected_faces = detect_face_artifacts(file_path)
+            image = cv2.imread(file_path)
+            image_area = int(image.shape[0] * image.shape[1]) if image is not None else 0
+            largest_face_area = max(
+                (int(box[2]) * int(box[3]) for box in detected_faces.get("face_boxes", [])),
+                default=0,
+            )
+            dominant_face = (
+                detected_faces.get("detection_confidence") in {"high", "medium"}
+                and image_area > 0 and largest_face_area / image_area >= 0.04
+            )
+            if content_context.get("document_like") and not dominant_face:
                 faces = {
                     "faces_found": 0,
                     "face_boxes": [],
@@ -2061,9 +2126,14 @@ def run_forensics_agent(provenance_output: dict) -> dict:
                         "multi-panel layout content."
                     ),
                     "clean_evidence_confidence": 0,
+                    "skip_reason": "DOCUMENT_OR_MULTI_PANEL_LAYOUT_WITHOUT_DOMINANT_FACE",
                 }
             else:
-                faces = detect_face_artifacts(file_path)
+                faces = detected_faces
+                if content_context.get("document_like") and dominant_face:
+                    content_context["routing_override"] = "DOMINANT_FACE_DETECTED"
+                    content_context["document_like"] = False
+                    content_context["content_type"] = "PHOTO_SCENE_WITH_POSSIBLE_TEXT"
             findings["face_artifacts"] = faces
             all_flags.extend(faces.get("flags", []))
 
@@ -2201,6 +2271,15 @@ def run_forensics_agent(provenance_output: dict) -> dict:
             )
 
         analysis_limitations.append(_HEURISTIC_DISCLAIMER)
+        module_execution = {}
+        for name, module in findings.items():
+            state = module.get("module_status", "unknown")
+            reason = module.get("skip_reason") or module.get("coverage_reason")
+            module_execution[name] = {"status": state, "reason": reason}
+            log.info(
+                "Forensics module %s: status=%s reason=%s flags=%d",
+                name, state, reason or "none", len(module.get("flags", [])),
+            )
 
         result = {
             "status": "success",
@@ -2218,6 +2297,12 @@ def run_forensics_agent(provenance_output: dict) -> dict:
             "analysis_limitations": analysis_limitations,
             "score_reasoning": score_reasoning,
             "raw_findings": findings,
+            "module_execution": module_execution,
+            "modules_not_run": [
+                {"module": name, **details}
+                for name, details in module_execution.items()
+                if details["status"] in {"not_applicable", "skipped", "unavailable", "error"}
+            ],
             "all_flags": all_flags,
             "total_flags_found": len(all_flags),
             "ready_for_next_agent": True,

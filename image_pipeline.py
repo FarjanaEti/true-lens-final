@@ -1,6 +1,7 @@
 """Unified TrueLens orchestration for local files and supported URLs."""
 
 import json
+import logging
 import os
 import sys
 import time
@@ -11,6 +12,9 @@ from agent.crossReff import run_crossref_agent
 from agent.forensic import run_forensics_agent
 from agent.ingestor import run_ingestor_agent
 from agent.provinence import run_provenance_agent
+
+
+log = logging.getLogger(__name__)
 
 
 def _timed_call(function, *args):
@@ -41,6 +45,9 @@ def run_pipeline(user_input: str, cookies_file: str = None) -> dict:
         ingestor, ingest_ms = _timed_call(run_ingestor_agent, user_input)
     else:
         ingestor, ingest_ms = _timed_call(run_ingestor_agent, user_input, cookies_file)
+    log.info('pipeline input=%s ingestor_status=%s media_type=%s source_hash=%s canonical_path=%s',
+             user_input, ingestor.get('status'), ingestor.get('media_type'),
+             ingestor.get('source_file_hash'), ingestor.get('normalized_file_path'))
     if not ingestor.get("ready_for_next_agent") or ingestor.get("media_type") not in {
         "image", "video", "audio"
     }:
@@ -80,6 +87,12 @@ def run_pipeline(user_input: str, cookies_file: str = None) -> dict:
 
     final_decision = run_decision_engine(
         ingestor, provenance, forensics, cross_reference)
+    log.info('pipeline evidence provenance=%s c2pa=%s forensics=%s/%s claims=%s '
+             'decision=%s baseline=%s', provenance.get('status'),
+             provenance.get('c2pa', {}).get('c2pa_status'),
+             forensics.get('media_authenticity'), forensics.get('confidence'),
+             cross_reference.get('claims_checked'), final_decision.get('category'),
+             final_decision.get('decision_state', {}).get('baseline_trigger'))
     return {
         "status": "completed",
         "processed_at": datetime.now(timezone.utc).isoformat(),

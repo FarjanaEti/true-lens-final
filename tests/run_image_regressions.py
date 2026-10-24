@@ -20,7 +20,7 @@ from agent import crossReff as crossref_module
 
 # Media regressions are deterministic and offline. Search routing itself is
 # covered separately with a mocked provider in test_multilingual_and_ingestion.
-crossref_module.search_trusted_sources = lambda query, max_results=5: {
+crossref_module.search_trusted_sources = lambda query, max_results=5, **kwargs: {
     'found': False, 'results': [], 'requests_made': 0, 'status': 'NOT_CHECKED'
 }
 
@@ -57,10 +57,14 @@ def main():
                 agents = result['agents']
                 assert all(agents[name]['status'] in {'success', 'completed', 'skipped'} for name in agents), (label, agents)
                 if label == 'c2pa_positive':
-                    assert agents['provenance']['c2pa']['c2pa_valid'] is True
-                    assert agents['provenance']['c2pa']['c2pa_status'] == 'C2PA_VERIFIED'
-                    assert decision['decision_state']['strong_provenance_evidence'] is True
-                    assert decision['category'] == 'Likely Authentic'
+                    c2pa = agents['provenance']['c2pa']
+                    assert c2pa['signature_valid'] is True
+                    assert c2pa['asset_binding_valid'] is True
+                    assert c2pa['credential_trusted'] is False
+                    assert c2pa['c2pa_valid'] is False
+                    assert c2pa['c2pa_status'] == 'C2PA_VALID_UNTRUSTED'
+                    assert decision['decision_state']['strong_provenance_evidence'] is False
+                    assert decision['category'] == 'Needs Review'
                 if label == 'metadata_positive':
                     assert agents['provenance']['metadata']['exif_status'] == 'PRESENT'
                 if label == 'no_meaningful_claims':

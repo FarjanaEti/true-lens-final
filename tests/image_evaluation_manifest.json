@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "categories": {
+    "A": "Original or independently corroborated news graphics",
+    "B": "Genuine photographs with demonstrably false or misleading context",
+    "C": "AI-generated images",
+    "D": "Images with known digital manipulation"
+  },
+  "fixtures": [
+    {
+      "filename": "adobe-20220124-C.jpg",
+      "role": "provenance_control",
+      "category": null,
+      "label_status": "verified_control_only",
+      "ground_truth": {
+        "claim": "Official C2PA public test asset with a valid simple claim; this establishes the expected C2PA validation behavior, not whether the depicted pixels are news, AI-generated, or manipulated.",
+        "source_url": "https://github.com/c2pa-org/public-testfiles/blob/main/legacy/1.4/image/jpeg/adobe-20220124-C.jpg",
+        "license_url": "https://github.com/c2pa-org/public-testfiles/blob/main/LICENSE",
+        "expected_sha256": "75a8da33f6eaf1e16bf3b42cd78913b22b2e6a671fda217a508b1ba4230ce864"
+      },
+      "expected": {
+        "ingestor_status": "success",
+        "c2pa_status": "C2PA_VALID_UNTRUSTED",
+        "media_authenticity": "The signature and asset binding validate, but the test signing credential is untrusted; do not treat this fixture as strong authenticity support.",
+        "claim_context": "No factual news-context conclusion is expected."
+      }
+    },
+    {
+      "filename": "c2pa_adobe_positive.jpg",
+      "role": "unlabeled_repository_fixture",
+      "category": null,
+      "label_status": "unverified",
+      "ground_truth": {"claim": null, "source_url": null, "license_url": null},
+      "expected": {"ingestor_status": "success", "media_authenticity": "Abstain without independent ground truth.", "claim_context": "Abstain without independently verified context."}
+    },
+    {
+      "filename": "carson-screenshot8_0.png",
+      "role": "unlabeled_repository_fixture",
+      "category": null,
+      "label_status": "unverified",
+      "ground_truth": {"claim": null, "source_url": null, "license_url": null},
+      "expected": {"ingestor_status": "success", "media_authenticity": "Abstain without independent ground truth.", "claim_context": "Abstain without independently verified context."}
+    },
+    {
+      "filename": "imageprocessor.jpeg",
+      "role": "unlabeled_repository_fixture",
+      "category": null,
+      "label_status": "unverified",
+      "ground_truth": {"claim": null, "source_url": null, "license_url": null},
+      "expected": {"ingestor_status": "success", "media_authenticity": "Abstain without independent ground truth.", "claim_context": "Abstain without independently verified context."}
+    },
+    {
+      "filename": "chek.jpeg",
+      "role": "candidate_news_graphic",
+      "category": null,
+      "label_status": "unverified",
+      "ground_truth": {"claim": null, "source_url": null, "license_url": null},
+      "expected": {"ingestor_status": "success", "media_authenticity": "A logo or document layout must not establish authenticity.", "claim_context": "Keep Needs Review unless external evidence supports or contradicts a coherent claim."}
+    },
+    {
+      "filename": "images.jpeg",
+      "role": "candidate_ai_image",
+      "category": null,
+      "label_status": "unverified",
+      "ground_truth": {"claim": "A test method calls this an AI flood image, but supplies no generator record, original source, or dataset citation; the filename/test name is not ground truth.", "source_url": null, "license_url": null},
+      "expected": {"ingestor_status": "success", "media_authenticity": "Do not score as category C without independently established ground truth.", "claim_context": "No context conclusion is expected without a supported claim."}
+    },
+    {
+      "filename": "newsntvfake.jpg",
+      "role": "candidate_news_graphic",
+      "category": null,
+      "label_status": "unverified",
+      "ground_truth": {"claim": "The filename is not evidence that the image or its election claim is false.", "source_url": null, "license_url": null},
+      "expected": {"ingestor_status": "success", "media_authenticity": "Abstain unless provenance or strong technical evidence supports a conclusion.", "claim_context": "Keep Needs Review when trusted-source corroboration is absent."}
+    },
+    {
+      "filename": "fakenews.webp",
+      "role": "candidate_fact_check_graphic",
+      "category": null,
+      "label_status": "unverified",
+      "ground_truth": {"claim": "The filename and visible branding are not independent ground truth.", "source_url": null, "license_url": null},
+      "expected": {"ingestor_status": "success", "media_authenticity": "A publisher logo must not establish authenticity.", "claim_context": "Keep Needs Review unless external evidence supports or contradicts a coherent claim."}
+    }
+  ]
+}

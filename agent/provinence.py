@@ -671,6 +671,16 @@ def check_c2pa_signature(file_path: str) -> dict:
         "c2pa_issuer": None,
         "c2pa_timestamp": None,
         "c2pa_claims": [],
+        "sdk_validation_state": None,
+        "signature_valid": False,
+        "asset_binding_valid": False,
+        "credential_trusted": False,
+        "applicable_verification": False,
+        "validation_failures": [],
+        "execution_state": "DID_NOT_RUN",
+        "trust_status": "NOT_CHECKED",
+        "generative_ai_declared": False,
+        "generative_ai_assertions": [],
         "note": "",
     }
 
@@ -715,12 +725,57 @@ def check_c2pa_signature(file_path: str) -> dict:
             )
         else:
             manifest = reader.get_active_manifest()
-
             result["c2pa_present"] = True
-            result["c2pa_valid"] = reader.is_valid
             result["presence_status"] = "PRESENT"
-            result["verification_status"] = "VALID" if reader.is_valid else "INVALID"
-            result["c2pa_status"] = "C2PA_VERIFIED" if reader.is_valid else "C2PA_NOT_VERIFIED"
+
+            validation_state = str(reader.get_validation_state())
+            validation_results = reader.get_validation_results() or {}
+            active_validation = validation_results.get("activeManifest") or {}
+            successes = active_validation.get("success") or []
+            failures = active_validation.get("failure") or []
+            success_codes = {item.get("code") for item in successes if isinstance(item, dict)}
+            failure_codes = {item.get("code") for item in failures if isinstance(item, dict)}
+            signature_valid = "claimSignature.validated" in success_codes
+            asset_binding_valid = any(code in success_codes for code in (
+                "assertion.dataHash.match", "assertion.bmffHash.match"))
+            credential_trusted = any(
+                str(code or "").startswith("signingCredential.trusted")
+                for code in success_codes
+            ) and not any(
+                str(code or "").startswith("signingCredential.untrusted")
+                for code in failure_codes
+            )
+            cryptographically_valid = bool(
+                manifest and reader.is_valid and signature_valid and asset_binding_valid
+                and not any(
+                    code not in {"signingCredential.untrusted"}
+                    for code in failure_codes
+                )
+            )
+            applicable = cryptographically_valid
+            result.update({
+                "c2pa_valid": cryptographically_valid,
+                "sdk_validation_state": validation_state,
+                "signature_valid": signature_valid,
+                "asset_binding_valid": asset_binding_valid,
+                "credential_trusted": credential_trusted,
+                "applicable_verification": applicable,
+                "execution_state": "RAN_AND_FOUND_SOMETHING",
+                "trust_status": "TRUSTED" if credential_trusted else "UNTRUSTED",
+                "validation_failures": [
+                    {key: item.get(key) for key in ("code", "url", "explanation")}
+                    for item in failures if isinstance(item, dict)
+                ],
+            })
+            if cryptographically_valid and credential_trusted:
+                result["verification_status"] = "VALID"
+                result["c2pa_status"] = "C2PA_VERIFIED"
+            elif cryptographically_valid:
+                result["verification_status"] = "VALID_UNTRUSTED"
+                result["c2pa_status"] = "C2PA_VALID_UNTRUSTED"
+            else:
+                result["verification_status"] = "INVALID"
+                result["c2pa_status"] = "C2PA_NOT_VERIFIED"
 
             if manifest:
                 signature_info = manifest.get("signature_info") or {}
@@ -739,9 +794,42 @@ def check_c2pa_signature(file_path: str) -> dict:
                 elif isinstance(assertions, dict):
                     result["c2pa_claims"] = list(assertions.keys())
 
-            validation_state = reader.get_validation_state()
+                def _find_generative(value, path="manifest"):
+                    matches = []
+                    if isinstance(value, dict):
+                        for key, child in value.items():
+                            matches.extend(_find_generative(child, f"{path}.{key}"))
+                    elif isinstance(value, list):
+                        for index, child in enumerate(value):
+                            matches.extend(_find_generative(child, f"{path}[{index}]"))
+                    elif isinstance(value, str):
+                        lowered = value.casefold()
+                        if any(token in lowered for token in (
+                            "trainedalgorithmicmedia", "generative ai", "generative-ai",
+                            "digitalcreation", "ai_generated", "ai-generated",
+                        )):
+                            matches.append({"path": path, "value": value[:200]})
+                    return matches
 
-            result["note"] = f"C2PA manifest found. Validation state: {validation_state}"
+                generative = _find_generative(manifest)
+                result["generative_ai_assertions"] = generative
+                result["generative_ai_declared"] = bool(generative)
+
+            if cryptographically_valid and credential_trusted:
+                result["note"] = (
+                    "C2PA manifest, claim signature, trusted signing credential, and "
+                    f"asset binding validated. SDK state: {validation_state}."
+                )
+            elif cryptographically_valid:
+                result["note"] = (
+                    "C2PA signature and asset binding validated cryptographically; signer identity "
+                    f"is not in the configured trust store. SDK state: {validation_state}."
+                )
+            else:
+                result["note"] = (
+                    "C2PA manifest was found but did not produce an applicable successful "
+                    f"verification. SDK state: {validation_state}."
+                )
 
             reader.close()
 
@@ -756,11 +844,13 @@ def check_c2pa_signature(file_path: str) -> dict:
             else "No C2PA manifest markers were found. Cryptographic verification is "
             "NOT_AVAILABLE; absence is not evidence of manipulation."
         )
+        result["execution_state"] = "DID_NOT_COMPLETE" if result["c2pa_present"] else "DID_NOT_RUN"
 
     except Exception as e:
         result["c2pa_status"] = "C2PA_NOT_VERIFIED" if result["c2pa_present"] else "NO_C2PA"
         result["verification_status"] = "FAILED" if result["c2pa_present"] else "NOT_CHECKED"
         result["note"] = f"C2PA verification failed: {e}"
+        result["execution_state"] = "DID_NOT_COMPLETE" if result["c2pa_present"] else "DID_NOT_RUN"
 
         log.warning(f"C2PA verification failed: {e}")
 
@@ -967,14 +1057,18 @@ def calculate_provenance_score(
 
     # ── C2PA scoring ──
     c2pa_status = c2pa_result.get("c2pa_status", "NO_C2PA")
-    if c2pa_status == "C2PA_VERIFIED":
+    if c2pa_status in {"C2PA_VERIFIED", "C2PA_VALID_UNTRUSTED"} and c2pa_result.get("c2pa_valid"):
         score += 40
         reasoning.append(
             "C2PA_VERIFIED: Cryptographic signature verified — strong authenticity signal"
         )
-    elif c2pa_status in {"C2PA_PRESENT", "C2PA_NOT_AVAILABLE", "C2PA_NOT_VERIFIED"}:
+    elif c2pa_status == "C2PA_NOT_VERIFIED" and c2pa_result.get("verification_status") == "INVALID":
+        score -= 30
+        reasoning.append("C2PA_INVALID: Embedded manifest failed cryptographic validation")
+    elif c2pa_status in {"C2PA_PRESENT", "C2PA_NOT_AVAILABLE"}:
         reasoning.append(
-            "C2PA_MARKER_FOUND: Markers present but not cryptographically verified")
+            "C2PA_NOT_APPLICABLE: Credentials are present but did not establish "
+            "trusted, asset-bound provenance")
     elif c2pa_status == "C2PA_VERIFICATION_FAILED":  # legacy compatibility
         reasoning.append(
             "C2PA_VERIFICATION_FAILED: Markers present but verification failed — more suspicious than no C2PA at all"
@@ -1060,7 +1154,8 @@ def calculate_provenance_confidence(
               (no C2PA, no hash match, only weak metadata flags).
     """
     strong_signal = (
-        c2pa_result.get("c2pa_status") == "C2PA_VERIFIED"
+        (c2pa_result.get("c2pa_status") in {"C2PA_VERIFIED", "C2PA_VALID_UNTRUSTED"}
+         and c2pa_result.get("c2pa_valid") is True)
         or hash_result.get("hash_match") is True
         or integrity_check.get("hash_mismatch") is True
     )
@@ -1070,7 +1165,8 @@ def calculate_provenance_confidence(
     high_conf_flag_count = sum(
         1 for f in metadata_flags if f["confidence"] == "HIGH_CONFIDENCE")
     has_c2pa_marker = c2pa_result.get("c2pa_status") in {
-        "C2PA_PRESENT", "C2PA_NOT_AVAILABLE", "C2PA_NOT_VERIFIED"
+        "C2PA_PRESENT", "C2PA_NOT_AVAILABLE", "C2PA_NOT_VERIFIED",
+        "C2PA_VALID_UNTRUSTED"
     }
 
     if has_c2pa_marker or high_conf_flag_count >= 1:

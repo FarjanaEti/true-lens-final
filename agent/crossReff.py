@@ -345,7 +345,16 @@ TRUSTED_DOMAINS = [
     "fema.gov",
     "gov.uk",
     "gov.bd",
+    # Official publisher domains are eligible only after publisher detection;
+    # appearing here never makes a logo or search hit authentic.
+    "ntvbd.com",
 ]
+
+# Source discovery, not a trust verdict. New publishers can be added without
+# changing claim verification or the Decision Engine policy.
+PUBLISHER_CATALOG = {
+    "ntv": {"name": "NTV Bangladesh", "domain": "ntvbd.com", "aliases": ("ntv", "ntv news", "এনটিভি")},
+}
 
 MAX_CLAIMS = 5
 MAX_SEARCH_QUERIES_PER_CLAIM = 2
@@ -1045,6 +1054,32 @@ def _merge_ocr_passes(texts: list) -> str:
     return "\n".join(output_lines)
 
 
+def normalize_ocr_text(raw_text: str) -> dict:
+    """Conservatively isolate noise without correcting or inventing words."""
+    kept, rejected = [], []
+    for index, raw_line in enumerate(str(raw_text or "").splitlines()):
+        line = unicodedata.normalize("NFC", raw_line)
+        line = re.sub(r"[|\\]{2,}", " ", line)
+        line = re.sub(r"\s+", " ", line).strip(" \t,;|_")
+        quality = _ocr_quality(line)
+        alnum = sum(ch.isalnum() for ch in line)
+        reason = None
+        if not line:
+            reason = "EMPTY"
+        elif alnum < 2:
+            reason = "NO_MEANINGFUL_CHARACTERS"
+        elif quality["score"] < 24:
+            reason = "LOW_LINE_QUALITY"
+        record = {"line_index": index, "raw_text": raw_line,
+                  "normalized_text": line, "quality_score": quality["score"]}
+        if reason:
+            rejected.append({**record, "reason": reason})
+        else:
+            kept.append(record)
+    return {"text": "\n".join(item["normalized_text"] for item in kept),
+            "kept_lines": kept, "rejected_lines": rejected}
+
+
 def extract_text_via_ocr(file_path: str, media_type: str, layout_aware: bool = True) -> dict:
 
     log.info("Running OCR text extraction...")
@@ -1098,7 +1133,7 @@ def extract_text_via_ocr(file_path: str, media_type: str, layout_aware: bool = T
                         accepted = bool(text and quality["score"] >= 28)
                         ocr_attempts.append({"name": name, "pass": name, "characters": len(text),
                                              "quality_score": quality["score"], "language": ocr_language,
-                                             "accepted": accepted})
+                                             "accepted": accepted, "raw_text": text})
                         if accepted:
                             extracted_texts.append(text)
                     except Exception as pass_error:
@@ -1169,8 +1204,12 @@ def extract_text_via_ocr(file_path: str, media_type: str, layout_aware: bool = T
                 "OCR_NO_TEXT_DETECTED: " "OCR completed but no readable text was extracted."
             )
 
+        normalized = normalize_ocr_text(combined_text)
         return {
             "ocr_text": combined_text,
+            "raw_text": combined_text,
+            "normalized_text": normalized["text"],
+            "normalization": normalized,
             "ocr_text_length": len(combined_text),
             "flags": flags,
             "module_status": "partial" if missing_languages else ("complete" if combined_text else "failed"),
@@ -1298,6 +1337,7 @@ _DATE_PATTERNS = [
     r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(st|nd|rd|th)?\b",
     r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
     r"\b20\d{2}\b",
+    r"[০-৯]{1,2}\s+(?:জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)\s+[০-৯]{4}",
 ]
 
 _DEATH_CONTEXT = ["died", "dead", "killed", "casualties", "fatalities"]
@@ -1831,6 +1871,12 @@ def _is_social_ui_or_ocr_garbage(text: str) -> bool:
         return True
     if re.search(r"\b\d+(?:\.\d+)?[km]?\s+views?\b", low):
         return True
+    # Multiple fused CamelCase transitions in a short OCR line usually mean
+    # adjacent words/regions were merged. Preserve the source elsewhere, but
+    # do not search it as a confidently reconstructed assertion.
+    fused_transitions = len(re.findall(r"(?<=[a-z])(?=[A-Z])", value))
+    if fused_transitions >= 2 and len(value.split()) <= 12:
+        return True
     alnum = sum(ch.isalnum() for ch in value)
     alpha = sum(ch.isalpha() for ch in value)
     if alnum and (alpha / alnum) < 0.55:
@@ -1862,7 +1908,18 @@ def _claim_candidates(ocr_text: str, transcript: str) -> list:
     """Split OCR by lines as well as punctuation so UI text cannot absorb a caption."""
     combined = f"{ocr_text}\n{transcript}"
     candidates = []
-    for line in combined.splitlines():
+    lines = [_normalize_claim_text(line) for line in combined.splitlines()]
+    for index, line in enumerate(lines):
+        # A date printed on the immediately following line is part of an
+        # event headline when the current line contains an event. Preserve
+        # both verbatim; do not spell-correct or infer missing content.
+        if index + 1 < len(lines):
+            current_entities = extract_entities(line)
+            next_entities = extract_entities(lines[index + 1])
+            if current_entities.get("events") and next_entities.get("dates"):
+                joined = _normalize_claim_text(f"{line} {lines[index + 1]}")
+                if len(joined) >= 20:
+                    candidates.append(joined)
         for fragment in re.split(r"(?<=[.!?])\s+", line):
             cleaned = _normalize_claim_text(fragment)
             if len(cleaned) >= 20:
@@ -2045,15 +2102,8 @@ def detect_primary_claim(ocr_text: str, transcript: str, combined_entities: dict
     if combined_entities.get("locations"):
         location = combined_entities["locations"][0]
 
-    if event_hit and location:
-        media_word = "video" if transcript else "image"
-
-        return {
-            "text": (f"This {media_word} shows " f"{event_hit} in {location}."),
-            "entities": combined_entities,
-            "categories": [event_category],
-            "derivation": "EVENT_KEYWORD_PLUS_LOCATION_INFERRED",
-        }
+    # Event and location tokens may come from unrelated regions of a graphic.
+    # Never synthesize a sentence that OCR did not actually contain.
 
     candidates = []
 
@@ -2114,6 +2164,13 @@ def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False, o
     external verification layer.
     """
     log.info("Extracting structured fact-checkable claims...")
+
+    supplied_quality = float((ocr_result or {}).get("quality_score", 0) or 0)
+    if ocr_result is not None and supplied_quality < 40 and not transcript.strip():
+        stats = {"ocr_claim_candidates": 0, "reliable_claims": 0,
+                 "filtered_claims": 0, "status": "OCR_TOO_POOR",
+                 "reason": f"OCR quality {supplied_quality:.1f} is below the claim-extraction threshold (40)."}
+        return ([], stats) if return_stats else []
 
     all_text = (f"{ocr_text}\n{transcript}").strip()
 
@@ -2240,6 +2297,8 @@ def extract_claims(ocr_text: str, transcript: str, return_stats: bool = False, o
         claim["confidence"] = round(min(base, quality / 100) if quality else base, 2)
         claim.setdefault("original_ocr_text", claim["text"])
         claim["raw_ocr_text"] = claim["original_ocr_text"]
+        claim["source_text"] = claim.get("source_text", claim["original_ocr_text"])
+        claim["source_lines"] = claim.get("source_lines", [claim["original_ocr_text"]])
         claim["normalized_text"] = claim["text"]
         claim["claim_text"] = claim["text"]
         claim["source_region"] = claim.get("source_region", "merged_ocr")
@@ -2307,13 +2366,19 @@ def build_search_queries(
 
     # Keep Unicode intact. Exact/original and entity queries complement one
     # another; no fabricated translation is introduced.
-    combos = [claim_text[:180]] if claim_text.strip() else []
+    combos = []
+
+    # For OCR-derived news cards, event + date is usually the most specific
+    # reliable query and is less vulnerable to one corrupted headline word.
+    date_is_specific = bool(date and not re.fullmatch(r"[0-9০-৯]{4}", str(date).strip()))
+    if event and date_is_specific:
+        combos.append(f"{event} {date}")
+
+    if claim_text.strip():
+        combos.append(claim_text[:180])
 
     if event and location:
         combos.append(f"{event} {location}")
-
-    if event and date:
-        combos.append(f"{event} {date}")
 
     if event and person:
         combos.append(f"{event} {person}")
@@ -2388,6 +2453,104 @@ def is_trusted_domain(domain: str) -> bool:
             return True
 
     return False
+
+
+def _publisher_alias_matches(text: str, alias: str) -> bool:
+    """Match an OCR branding token without accepting arbitrary substrings."""
+    value = unicodedata.normalize("NFC", str(text or "")).casefold()
+    token = unicodedata.normalize("NFC", str(alias or "")).casefold()
+    if not value or not token:
+        return False
+    if token.isascii():
+        return bool(re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", value))
+    return token in value
+
+
+def detect_publisher(ocr_text: str, ocr_attempts: list = None) -> dict:
+    """Identify exact OCR branding evidence; a logo clue is never source proof."""
+    evidence_inputs = [("merged_ocr", str(ocr_text or ""))]
+    evidence_inputs.extend(
+        (str(item.get("name") or item.get("pass") or "ocr_pass"), str(item.get("raw_text") or ""))
+        for item in (ocr_attempts or []) if isinstance(item, dict)
+    )
+    for publisher in PUBLISHER_CATALOG.values():
+        matches = []
+        for pass_name, text in evidence_inputs:
+            for alias in publisher["aliases"]:
+                if _publisher_alias_matches(text, alias):
+                    matches.append({"ocr_pass": pass_name, "matched_alias": alias})
+        if matches:
+            return {
+                "detected": True, "name": publisher["name"], "domain": publisher["domain"],
+                "confidence": "MEDIUM", "method": "EXACT_OCR_BRANDING_TOKEN",
+                "evidence": matches,
+                "note": "OCR branding only targets an official-domain search; it does not authenticate the media or claim.",
+            }
+    return {"detected": False, "name": None, "domain": None, "confidence": "NONE",
+            "method": "NO_RELIABLE_PUBLISHER_CLUE", "evidence": [],
+            "note": "No exact configured publisher branding token was recovered from OCR."}
+
+
+def reconstruct_bangla_headline(ocr_text: str) -> str:
+    """Join the strongest adjacent Bangla OCR lines into a searchable headline."""
+    lines = [re.sub(r"\s+", " ", line).strip(" -–—|:।") for line in str(ocr_text or "").splitlines()]
+    runs, current = [], []
+    for line in lines:
+        bangla = sum("\u0980" <= ch <= "\u09ff" for ch in line)
+        if bangla >= 6 and bangla / max(len(line), 1) >= .45:
+            current.append(line)
+        elif current:
+            runs.append(current); current = []
+    if current:
+        runs.append(current)
+    if not runs:
+        return ""
+    candidate = max(runs, key=lambda run: sum(len(line) for line in run))
+    return _normalize_claim_text(" ".join(candidate))
+
+
+def reconstruct_news_headline(normalized_text: str) -> dict:
+    """Return a traceable candidate and explicitly grade its completeness."""
+    lines = [_normalize_claim_text(line) for line in str(normalized_text or "").splitlines()]
+    def useful_line(line):
+        bangla = sum("\u0980" <= ch <= "\u09ff" for ch in line)
+        latin_words = re.findall(r"[A-Za-z]{2,}", line)
+        if bangla and latin_words:
+            return bangla >= 6 and len(latin_words) <= 1
+        return bangla >= 4 or len(latin_words) >= 4
+    lines = [line for line in lines if line and useful_line(line)
+             and (extract_entities(line).get("dates")
+                  or not _is_social_ui_or_ocr_garbage(line))]
+    if not lines:
+        return {"text": "", "status": "NOT_FOUND", "source_lines": [],
+                "reasons": ["NO_COHERENT_OCR_LINES"]}
+    candidates = []
+    for index in range(len(lines)):
+        for width in (1, 2, 3):
+            source = lines[index:index + width]
+            if len(source) != width:
+                continue
+            text = _normalize_claim_text(" ".join(source))
+            fact_checkable, reason = _is_fact_checkable_sentence(text)
+            entities = extract_entities(text)
+            semantic_anchors = sum(bool(entities.get(key)) for key in
+                                   ("events", "locations", "dates", "persons", "organizations"))
+            numeric_anchors = int(bool(entities.get("numbers")))
+            words = re.findall(r"[^\W\d_]+", text, re.UNICODE)
+            has_event = bool(entities.get("events"))
+            has_date = bool(entities.get("dates"))
+            score = (len(words) + semantic_anchors * 4 + numeric_anchors
+                     + (8 if fact_checkable else 0) + (14 if has_event and has_date else 0))
+            candidates.append((score, text, source, fact_checkable, reason, semantic_anchors))
+    _, text, source, fact_checkable, reason, semantic_anchors = max(candidates, key=lambda item: item[0])
+    complete = (fact_checkable and len(re.findall(r"[^\W\d_]+", text, re.UNICODE)) >= 4
+                and semantic_anchors >= 1 and not _is_social_ui_or_ocr_garbage(text))
+    reasons = [] if complete else [reason if not fact_checkable else "INSUFFICIENT_COHERENT_CONTEXT"]
+    entities = extract_entities(text)
+    return {"text": text, "status": "COMPLETE" if complete else "INCOMPLETE",
+            "source_lines": source, "reasons": reasons,
+            "entities": entities, "language": _detect_text_language(text),
+            "date_text": entities.get("dates", [None])[0] if entities.get("dates") else None}
 
 
 # ============================================================
@@ -2502,11 +2665,12 @@ def _run_ddg_search(query: str, max_results: int) -> list:
 # ============================================================
 
 
-def search_trusted_sources(query: str, max_results: int = MAX_RESULTS_PER_QUERY) -> dict:
+def search_trusted_sources(query: str, max_results: int = MAX_RESULTS_PER_QUERY, domains: list = None) -> dict:
 
     if not BS4_AVAILABLE:
 
-        return {"found": False, "results": [], "error": "beautifulsoup4 not installed"}
+        return {"found": False, "results": [], "requests_made": 0,
+                "status": "SEARCH_FAILED", "error": "beautifulsoup4 not installed"}
 
     # Search small groups of trusted domains. Results are still domain-filtered
     # below, but latency is bounded to two requests with the default domain set.
@@ -2514,9 +2678,10 @@ def search_trusted_sources(query: str, max_results: int = MAX_RESULTS_PER_QUERY)
     seen_urls = set()
     requests_made = 0
 
+    eligible_domains = domains or TRUSTED_DOMAINS
     domain_groups = [
-        TRUSTED_DOMAINS[index: index + TRUSTED_DOMAIN_GROUP_SIZE]
-        for index in range(0, len(TRUSTED_DOMAINS), TRUSTED_DOMAIN_GROUP_SIZE)
+        eligible_domains[index: index + TRUSTED_DOMAIN_GROUP_SIZE]
+        for index in range(0, len(eligible_domains), TRUSTED_DOMAIN_GROUP_SIZE)
     ]
     for domains in domain_groups:
 
@@ -2853,11 +3018,21 @@ def compare_claim_to_evidence(
     if entity_result["mismatches"] and verdict == "CORROBORATED":
         verdict = "CONTRADICTED"
 
+    trusted = is_trusted_domain(evidence_source)
     return {
         "source": evidence_source,
         "source_type": source_type,
         "url": evidence_url,
-        "trusted_domain": is_trusted_domain(evidence_source),
+        "trusted_domain": trusted,
+        "source_trust": {
+            "trusted": trusted,
+            "rationale": (
+                "Domain is in the configured trusted-source allowlist."
+                if trusted else
+                "Domain is not in the configured trusted-source allowlist."
+            ),
+        },
+        "matched_claim": claim.get("text"),
         "text_verdict": text_result["verdict"],
         "overlap_score": text_result["overlap_score"],
         "keyword_overlap": text_result["keyword_overlap"],
@@ -2873,7 +3048,7 @@ def compare_claim_to_evidence(
 # ============================================================
 
 
-def verify_claims(claims: list) -> dict:
+def verify_claims(claims: list, publisher: dict = None) -> dict:
 
     if not claims:
 
@@ -2902,12 +3077,16 @@ def verify_claims(claims: list) -> dict:
 
         evidence_comparisons = []
         search_statuses = []
+        search_trace = []
 
         # ----------------------------------------------------
         # Trusted web sources
         # ----------------------------------------------------
 
         queries = build_search_queries(claim["text"], claim["entities"])
+        publisher_domain = (publisher or {}).get("domain") if (publisher or {}).get("detected") else None
+        if publisher_domain:
+            queries = [claim["text"]] + queries
 
         for query in queries:
 
@@ -2915,8 +3094,9 @@ def verify_claims(claims: list) -> dict:
             if cache_key in search_cache:
                 trusted = search_cache[cache_key]
             else:
+                domain_scope = [publisher_domain] if publisher_domain and query == claim["text"] else None
                 trusted = search_trusted_sources(
-                    query, max_results=MAX_RESULTS_PER_QUERY)
+                    query, max_results=MAX_RESULTS_PER_QUERY, domains=domain_scope)
                 search_cache[cache_key] = trusted
                 # Count the routed provider query even when its circuit breaker
                 # rejects network I/O; requests_made remains provider detail.
@@ -2925,6 +3105,23 @@ def verify_claims(claims: list) -> dict:
                 )
             search_statuses.append(trusted.get(
                 "status", "INSUFFICIENT_EVIDENCE"))
+            search_trace.append({
+                "query": query,
+                "status": trusted.get("status", "INSUFFICIENT_EVIDENCE"),
+                "requests_made": int(trusted.get("requests_made", 0) or 0),
+                "results": [{"title": result.get("title"), "url": result.get("url"),
+                             "snippet": result.get("snippet"), "domain": result.get("domain"),
+                             "query_used": result.get("query_used", query),
+                             "publisher_identity": result.get("domain"),
+                             "trusted_domain": is_trusted_domain(result.get("domain", "")),
+                             "source_trust_rationale": (
+                                 "Domain is in the configured trusted-source allowlist."
+                                 if is_trusted_domain(result.get("domain", "")) else
+                                 "Domain is not in the configured trusted-source allowlist."
+                             )}
+                            for result in trusted.get("results", [])],
+                "error": trusted.get("error"),
+            })
 
             for result in trusted.get("results", []):
 
@@ -2935,8 +3132,13 @@ def verify_claims(claims: list) -> dict:
                     evidence_text=evidence_text,
                     evidence_source=result.get("domain", "unknown"),
                     evidence_url=result.get("url", ""),
-                    source_type="trusted_web_search",
+                    source_type=("official_publisher_search" if publisher_domain and result.get("domain") == publisher_domain else "trusted_web_search"),
                 )
+                comp.update({"title": result.get("title"),
+                             "snippet": result.get("snippet"), "query": query,
+                             "publisher_identity": result.get("domain"),
+                             "detected_media_publisher": (publisher or {}).get("name"),
+                             "detected_media_publisher_domain": (publisher or {}).get("domain")})
 
                 evidence_comparisons.append(comp)
 
@@ -3160,6 +3362,9 @@ def verify_claims(claims: list) -> dict:
                 "language": claim.get("language", _detect_text_language(claim["text"])),
                 "ocr_confidence": claim.get("confidence"),
                 "original_ocr_text": claim.get("original_ocr_text", claim["text"]),
+                "source_text": claim.get("source_text", claim.get("original_ocr_text", claim["text"])),
+                "source_lines": claim.get("source_lines", [claim.get("original_ocr_text", claim["text"])]),
+                "reconstruction_status": claim.get("reconstruction_status", "NOT_RECONSTRUCTED"),
                 "claim_type": claim.get("claim_type", "FACTUAL_CLAIM"),
                 "is_fact_checkable": claim.get("is_fact_checkable", True),
                 "is_primary_claim": claim.get("is_primary", False),
@@ -3170,6 +3375,8 @@ def verify_claims(claims: list) -> dict:
                                   for c in evidence_comparisons if c.get("source"))
                 ),
                 "evidence_comparisons": evidence_comparisons,
+                "search_queries": queries,
+                "search_trace": search_trace,
                 "verdict": verdict,
                 "search_status": (
                     "SEARCH_FAILED" if verdict == "SEARCH_FAILED" else (
@@ -3186,6 +3393,7 @@ def verify_claims(claims: list) -> dict:
                 ),
                 "confidence": confidence,
                 "reasoning": reasoning,
+                "verification_reason": "; ".join(reasoning) if reasoning else "No decisive evidence was returned.",
             }
         )
 
@@ -3204,6 +3412,15 @@ def verify_claims(claims: list) -> dict:
         "flags": flags,
         "sources_used": sorted(all_sources_used),
         "external_searches_performed": external_searches_performed,
+        "search_status": (
+            "NOT_CHECKED" if not claim_results else
+            "SEARCH_FAILED" if all(item["verdict"] == "SEARCH_FAILED" for item in claim_results) else
+            "CORROBORATED" if verified_count else
+            "CONTRADICTED" if debunked_count else "INSUFFICIENT_EVIDENCE"
+        ),
+        "source_results": [result for item in claim_results
+                           for trace in item.get("search_trace", [])
+                           for result in trace.get("results", [])],
     }
 
 
@@ -3534,6 +3751,26 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
         all_flags.extend(ocr_result.get("flags", []))
 
         ocr_text = ocr_result.get("ocr_text", "")
+        normalized_ocr = ocr_result.get("normalized_text") or normalize_ocr_text(ocr_text)["text"]
+        publisher = detect_publisher(ocr_text, ocr_result.get("ocr_attempts", []))
+        headline_result = reconstruct_news_headline(normalized_ocr)
+        headline = headline_result["text"]
+        ocr_quality = float(ocr_result.get("quality_score", 0) or 0)
+        text_presence_confirmed = bool(
+            normalized_ocr.strip()
+            and ocr_quality >= 40
+            and (layout_aware or headline_result["status"] == "COMPLETE")
+        )
+        if media_type == "image" and not text_presence_confirmed:
+            ocr_result["text_presence"] = "NOT_CONFIRMED"
+            ocr_result["claim_extraction_reason"] = (
+                "OCR did not produce coherent text with sufficient quality; "
+                "claim extraction was skipped."
+            )
+            normalized_claim_text = ""
+        else:
+            ocr_result["text_presence"] = "CONFIRMED" if normalized_ocr.strip() else "NO_TEXT_FOUND"
+            normalized_claim_text = normalized_ocr
 
         # ----------------------------------------------------
         # Transcription
@@ -3577,7 +3814,18 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
         # ----------------------------------------------------
 
         claims, claim_filter_stats = extract_claims(
-            ocr_text, transcript, return_stats=True, ocr_result=ocr_result)
+            normalized_claim_text, transcript, return_stats=True, ocr_result=ocr_result)
+        if text_presence_confirmed and headline_result["status"] == "COMPLETE" and headline and not claims:
+            claims.insert(0, {
+                "text": headline, "original_ocr_text": headline, "entities": extract_entities(headline),
+                "categories": [], "derivation": "RECONSTRUCTED_BANGLA_HEADLINE", "is_primary": True,
+                "claim_type": "NEWS_HEADLINE", "is_fact_checkable": True,
+                "language": "bn", "confidence": round(min(0.8, float(ocr_result.get("quality_score", 0) or 0) / 100), 2),
+                "source_text": "\n".join(headline_result["source_lines"]),
+                "source_lines": headline_result["source_lines"],
+                "reconstruction_status": headline_result["status"],
+            })
+            claims = claims[:MAX_CLAIMS]
 
         if not claims:
 
@@ -3608,7 +3856,7 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
 
         else:
 
-            claim_verification = verify_claims(claims)
+            claim_verification = verify_claims(claims, publisher=publisher)
 
             all_flags.extend(claim_verification.get("flags", []))
 
@@ -3643,6 +3891,8 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
             "debunked_count": claim_verification["debunked_count"],
             "unverified_count": claim_verification["unverified_count"],
             "sources_used": claim_verification.get("sources_used", []),
+            "source_results": claim_verification.get("source_results", []),
+            "search_status": claim_verification.get("search_status", "NOT_CHECKED"),
             "external_searches_performed": claim_verification.get(
                 "external_searches_performed", 0
             ),
@@ -3651,6 +3901,9 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
             "cheapfake_analysis": cheapfake_result,
             # PATCH: new independent field
             "visual_similarity": visual_similarity_result,
+            "publisher": publisher,
+            "source_matches": [comparison for claim in claim_verification["claim_results"] for comparison in claim.get("evidence_comparisons", []) if comparison.get("final_verdict") == "CORROBORATED"],
+            "image_matches": [visual_similarity_result] if visual_similarity_result.get("verdict") == "NEAR_DUPLICATE_FOUND" else [],
             "ocr_text": ocr_text,
             "transcript": transcript,
             "language_detected": ocr_result.get("language_detected") or transcript_result.get("language"),
@@ -3665,13 +3918,31 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
                 "quality_score": ocr_result.get("quality_score", 0),
                 "coverage": ocr_result.get("coverage", {}),
                 "text": ocr_text,
+                "raw_text": ocr_text,
+                "normalized_text": normalized_ocr,
+                "reconstructed_headline": headline,
+                "headline_reconstruction": headline_result,
+                "reconstructed_claims": [
+                    {
+                        "text": claim.get("text"),
+                        "source_text": claim.get("source_text"),
+                        "source_lines": claim.get("source_lines", []),
+                        "reconstruction_status": claim.get("reconstruction_status", "NOT_RECONSTRUCTED"),
+                        "entities": claim.get("entities", {}),
+                    }
+                    for claim in claims
+                ],
+                "normalization": ocr_result.get("normalization", normalize_ocr_text(ocr_text)),
+                "claim_extraction_reliable": bool(ocr_result.get("quality_score", 0) >= 40),
+                "text_presence": ocr_result.get("text_presence", "UNKNOWN"),
+                "claim_extraction_reason": ocr_result.get("claim_extraction_reason"),
             },
             "routing_reason": routing_reason,
             "modules": {
                 "ocr": ocr_result.get("module_status"),
                 "transcription": transcript_result.get("module_status"),
                 "claim_extraction": "ok" if claims else "no_fact_checkable_claims",
-                "external_verification": "ok" if claims else "not_applicable",
+                "external_verification": claim_verification.get("search_status", "NOT_CHECKED") if claims else "not_applicable",
                 "cheapfake_analysis": "ok",
                 # PATCH: new module status entry
                 "visual_similarity": visual_similarity_result.get("module_status", "unknown"),
@@ -3689,6 +3960,7 @@ def run_crossref_agent(provenance_output: dict, forensics_output: dict) -> dict:
                 ),
                 "primary_claim_found": any(c.get("is_primary", False) for c in claims),
                 "external_evidence_found": bool(claim_verification.get("sources_used")),
+                "search_status": claim_verification.get("search_status", "NOT_CHECKED"),
                 "cheapfake_flags_found": len(cheapfake_result.get("flags", [])),
                 # PATCH: new summary field
                 "visual_similarity_verdict": visual_similarity_result.get("verdict", "NOT_CHECKED"),
