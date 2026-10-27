@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -35,16 +36,24 @@ def make_final_decision(provenance, forensics, cross_reference, ingestor=None):
     return run_decision_engine(ingestor, provenance, forensics, cross_reference)
 
 
-def run_pipeline(user_input: str, cookies_file: str = None) -> dict:
-    """Run the existing four agents and Decision Engine for one normalized input."""
+def _run_pipeline(
+    user_input: str,
+    cookies_file: str,
+    canonical_output_dir: str,
+) -> dict:
+    """Run all agents while the request's canonical workspace exists."""
     pipeline_started = time.perf_counter()
     if not str(user_input).lower().startswith(("http://", "https://")):
         user_input = os.path.abspath(user_input)
 
     if cookies_file is None:
-        ingestor, ingest_ms = _timed_call(run_ingestor_agent, user_input)
+        ingestor, ingest_ms = _timed_call(
+            run_ingestor_agent, user_input, None, canonical_output_dir
+        )
     else:
-        ingestor, ingest_ms = _timed_call(run_ingestor_agent, user_input, cookies_file)
+        ingestor, ingest_ms = _timed_call(
+            run_ingestor_agent, user_input, cookies_file, canonical_output_dir
+        )
     log.info('pipeline input=%s ingestor_status=%s media_type=%s source_hash=%s canonical_path=%s',
              user_input, ingestor.get('status'), ingestor.get('media_type'),
              ingestor.get('source_file_hash'), ingestor.get('normalized_file_path'))
@@ -114,6 +123,15 @@ def run_pipeline(user_input: str, cookies_file: str = None) -> dict:
         "final_decision": final_decision,
         "ready_for_display": True,
     }
+
+
+def run_pipeline(user_input: str, cookies_file: str = None) -> dict:
+    """Run the four agents in an isolated, automatically cleaned workspace."""
+    request_workspace = tempfile.TemporaryDirectory(prefix="truelens-request-")
+    try:
+        return _run_pipeline(user_input, cookies_file, request_workspace.name)
+    finally:
+        request_workspace.cleanup()
 
 
 def run_local_image_pipeline(local_image: str) -> dict:

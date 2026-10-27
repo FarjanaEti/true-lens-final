@@ -420,7 +420,11 @@ def generate_fingerprint(file_path: str) -> str:
 # ============================================================
 
 
-def run_ingestor_agent(user_input: str, cookies_file: str = None) -> dict:
+def run_ingestor_agent(
+    user_input: str,
+    cookies_file: str = None,
+    canonical_output_dir: str = None,
+) -> dict:
     """
     user_input: file path OR any URL (YouTube, Facebook, Instagram,
                 TikTok, direct image/video link, HLS stream)
@@ -464,7 +468,8 @@ def run_ingestor_agent(user_input: str, cookies_file: str = None) -> dict:
             if media_type == "image":
                 image_info = validate_local_image(source_path)
 
-            output_dir = os.getcwd()
+            output_dir = os.path.abspath(canonical_output_dir or os.getcwd())
+            os.makedirs(output_dir, exist_ok=True)
             if media_type == "image":
                 canonical_path = canonicalize_image(
                     source_path,
