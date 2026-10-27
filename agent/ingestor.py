@@ -88,7 +88,8 @@ def classify_input(user_input: str) -> str:
 # MODULE 2: SECURITY SANITIZATION
 # ============================================================
 
-DANGEROUS_EXTENSIONS = [".exe", ".bat", ".sh", ".php", ".js", ".py", ".dll", ".cmd", ".vbs", ".ps1"]
+DANGEROUS_EXTENSIONS = [".exe", ".bat", ".sh", ".php",
+                        ".js", ".py", ".dll", ".cmd", ".vbs", ".ps1"]
 
 MAX_FILE_SIZE_MB = 500
 MAX_IMAGE_PIXELS = 100_000_000
@@ -145,13 +146,15 @@ def _safe_truncate_filename(path: str, max_len: int = 200) -> str:
         return path
 
     # Truncate the stem (not the extension) down to a safe byte length
-    safe_stem = stem.encode("utf-8")[: max_len - len(ext.encode("utf-8"))].decode("utf-8", "ignore")
+    safe_stem = stem.encode(
+        "utf-8")[: max_len - len(ext.encode("utf-8"))].decode("utf-8", "ignore")
     new_filename = f"{safe_stem}{ext}"
     new_path = os.path.join(directory, new_filename)
 
     if new_path != path and os.path.exists(path):
         os.rename(path, new_path)
-        log.info(f"Filename truncated for safety: {filename} -> {new_filename}")
+        log.info(
+            f"Filename truncated for safety: {filename} -> {new_filename}")
 
     return new_path
 
@@ -211,7 +214,8 @@ def download_media(
 
         declared_size = int(response.headers.get("content-length", "0") or 0)
         if declared_size > MAX_FILE_SIZE_MB * 1024 * 1024:
-            raise ValueError("DOWNLOAD_TOO_LARGE: Remote media exceeds the configured size limit")
+            raise ValueError(
+                "DOWNLOAD_TOO_LARGE: Remote media exceeds the configured size limit")
 
         ext = Path(urlparse(user_input).path).suffix or ".tmp"
         output_path = os.path.join(temp_dir, f"downloaded_media{ext}")
@@ -221,7 +225,8 @@ def download_media(
             for chunk in response.iter_content(chunk_size=8192):
                 downloaded_bytes += len(chunk)
                 if downloaded_bytes > MAX_FILE_SIZE_MB * 1024 * 1024:
-                    raise ValueError("DOWNLOAD_TOO_LARGE: Remote media exceeds the configured size limit")
+                    raise ValueError(
+                        "DOWNLOAD_TOO_LARGE: Remote media exceeds the configured size limit")
                 f.write(chunk)
 
         log.info(f"Downloaded to: {output_path}")
@@ -279,7 +284,8 @@ def validate_local_image(file_path: str) -> dict:
             width, height = image.size
             frame_count = int(getattr(image, "n_frames", 1))
             if detected_format not in SUPPORTED_IMAGE_FORMATS:
-                raise ValueError(f"Unsupported image format: {detected_format or 'unknown'}")
+                raise ValueError(
+                    f"Unsupported image format: {detected_format or 'unknown'}")
             if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
                 raise ValueError(
                     f"Unsafe image dimensions: {width}x{height}; maximum is {MAX_IMAGE_PIXELS:,} pixels"
@@ -310,7 +316,8 @@ def canonicalize_video(input_path: str, output_path: str) -> str:
     log.info("Canonicalizing video to MP4 (H.264 + AAC)...")
 
     if shutil.which("ffmpeg") is None:
-        raise RuntimeError("FFMPEG_UNAVAILABLE: ffmpeg is required for video normalization")
+        raise RuntimeError(
+            "FFMPEG_UNAVAILABLE: ffmpeg is required for video normalization")
 
     result = subprocess.run(
         [
@@ -357,7 +364,8 @@ def canonicalize_audio(input_path: str, output_path: str) -> str:
     log.info("Canonicalizing audio to WAV...")
 
     if shutil.which("ffmpeg") is None:
-        raise RuntimeError("FFMPEG_UNAVAILABLE: ffmpeg is required for audio normalization")
+        raise RuntimeError(
+            "FFMPEG_UNAVAILABLE: ffmpeg is required for audio normalization")
 
     result = subprocess.run(
         ["ffmpeg", "-i", input_path, "-ar", "44100", "-ac", "2", "-y", output_path],
@@ -432,7 +440,8 @@ def run_ingestor_agent(user_input: str, cookies_file: str = None) -> dict:
 
             sanitize_input(user_input, input_type)
 
-            downloaded_path = download_media(user_input, input_type, temp_dir, cookies_file)
+            downloaded_path = download_media(
+                user_input, input_type, temp_dir, cookies_file)
 
             media_type = detect_media_type(downloaded_path)
             log.info(f"Media type detected: {media_type}")
@@ -446,7 +455,8 @@ def run_ingestor_agent(user_input: str, cookies_file: str = None) -> dict:
             if input_type != "local_file":
                 source_suffix = Path(downloaded_path).suffix.lower() or ".bin"
                 source_path = os.path.join(
-                    os.getcwd(), f"source_media_{source_hash[:16]}{source_suffix}"
+                    os.getcwd(
+                    ), f"source_media_{source_hash[:16]}{source_suffix}"
                 )
                 if not os.path.exists(source_path):
                     shutil.copy2(downloaded_path, source_path)
@@ -458,7 +468,8 @@ def run_ingestor_agent(user_input: str, cookies_file: str = None) -> dict:
             if media_type == "image":
                 canonical_path = canonicalize_image(
                     source_path,
-                    os.path.join(output_dir, f"canonical_image_{source_hash[:16]}.png"),
+                    os.path.join(
+                        output_dir, f"canonical_image_{source_hash[:16]}.png"),
                 )
                 canonical_format = "png"
             else:
